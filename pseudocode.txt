@@ -1,0 +1,203 @@
+Context.add_conversation(:bard)
+Context.add_conversation(:whip)
+
+plot_text =
+  ai_prompt(:bard, "bard/01_plot_draft", human_input: true)
+  |> ai_pipethru(:whip, "whip/02_plot_critique")
+  |> ai_pipethru(:bard, "bard/03_plot_final", optional_human_input: true, loopback_allowed_to: "whip/02_plot_critique")
+
+plot_simple =
+  ai_object_extract(:bard, "bard/04_plot_to_json", :json, schema: Plot)
+plot_full = plot_simple
+
+antagonists_text =
+  ai_prompt(:bard, "bard/05_antagonists_draft")
+  |> ai_pipethru(:whip, "whip/06_antagonists_critique")
+  |> ai_pipethru(:bard, "bard/07_antagonists_final", optional_human_input: true, loopback_allowed_to: "whip/06_antagonists_critique")
+
+plot_full =
+  ai_object_extract(:bard, "bard/08_antagonists_to_json", :json, schema: Plot, partial: true)
+
+{:__block__, [],
+  [
+    {
+      {
+        :.,
+        [line: 1],
+        [
+          {:__aliases__, [line: 1], [:Context]},
+          :add_conversation
+        ]
+      },
+      [line: 1],
+      [:bard]
+    },
+
+    {{:., [line: 2], [{:__aliases__, [line: 2], [:Context]}, :add_conversation]},
+     [line: 2], [:whip]},
+
+
+
+
+
+
+    {:=, [line: 4],
+     [
+       {:plot_text, [line: 4], nil},
+       {:|>, [line: 7],
+        [
+          {:|>, [line: 6],
+           [
+             {:ai_prompt, [line: 5],
+              [:bard, "bard/01_plot_draft", [human_input: true]]},
+             {:ai_pipethru, [line: 6], [:whip, "whip/02_plot_critique"]}
+           ]},
+          {:ai_pipethru, [line: 7],
+           [
+             :bard,
+             "bard/03_plot_final",
+             [
+               optional_human_input: true,
+               loopback_allowed_to: "whip/02_plot_critique"
+             ]
+           ]}
+        ]}
+     ]},
+    {:=, [line: 9],
+     [
+       {:plot_simple, [line: 9], nil},
+       {:ai_object_extract, [line: 10],
+        [
+          :bard,
+          "bard/04_plot_to_json",
+          :json,
+          [schema: {:__aliases__, [line: 10], [:Plot]}]
+        ]}
+     ]},
+    {:=, [line: 11],
+     [{:plot_full, [line: 11], nil}, {:plot_simple, [line: 11], nil}]},
+    {:=, [line: 13],
+     [
+       {:antagonists_text, [line: 13], nil},
+       {:|>, [line: 16],
+        [
+          {:|>, [line: 15],
+           [
+             {:ai_prompt, [line: 14], [:bard, "bard/05_antagonists_draft"]},
+             {:ai_pipethru, [line: 15], [:whip, "whip/06_antagonists_critique"]}
+           ]},
+          {:ai_pipethru, [line: 16],
+           [
+             :bard,
+             "bard/07_antagonists_final",
+             [
+               optional_human_input: true,
+               loopback_allowed_to: "whip/06_antagonists_critique"
+             ]
+           ]}
+        ]}
+     ]},
+    {:=, [line: 18],
+     [
+       {:plot_full, [line: 18], nil},
+       {:ai_object_extract, [line: 19],
+        [
+          :bard,
+          "bard/08_antagonists_to_json",
+          :json,
+          [schema: {:__aliases__, [line: 19], [:Plot]}, partial: true]
+        ]}
+     ]}
+  ]}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[
+  {
+    "id": null,
+    "method": "context_create_conversation",
+    "params": {
+        "conversation_id": "bard"
+    }
+  },
+
+
+
+
+
+
+  {
+    "id": null,
+    "method": "context_create_conversation",
+    "params": {
+        "conversation_id": "whip"
+    }
+  },
+
+  {
+    "id": "bard/01_plot_draft",
+    "method": "ai_prompt",
+    "params": {
+        "conversation_id": "bard",
+        "prompt": "bard/01_plot_draft",
+        "human_input": true
+    }
+  },
+  {
+    "id": "whip/02_plot_critique",
+    "method": "ai_pipethru",
+    "params": {
+        "pipe_from": "bard/01_plot_draft",
+        "conversation_id": "whip",
+        "prompt": "whip/02_plot_critique",
+        "human_input": true
+    }
+  },
+  {
+    "id": "bard/03_plot_final",
+    "method": "ai_pipethru",
+    "params": {
+        "conversation_id": "bard",
+        "prompt": "bard/03_plot_final",
+        "optional_human_input": true,
+        "loopback_allowed_to": "whip/02_plot_critique"
+    }
+  },
+  {
+    "id": "bard/04_plot_to_json",
+    "method": "ai_object_extract",
+    "params": {
+        "conversation_id": "bard",
+        "prompt": "bard/04_plot_to_json",
+        "human_input": true
+    }
+  },
+  {
+    "id": null,
+    "method": "store_object",
+    "params": {
+        "object_name": "plot_simple",
+    }
+  },
+  {
+    "id": null,
+    "method": "clone_object",
+    "params": {
+        "object_name": "plot_full",
+        "clone_from_object_name": "plot_simple",
+    }
+  },
+
+  ...
+]
