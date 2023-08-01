@@ -1,5 +1,8 @@
 (function() {
-    const channel = "ZZZ-CHANNEL-XXX:lobby";
+    // Open a generic prompt to let the user choose either "whip" or "bard"
+    let promptResult = prompt('Choose a character', 'whip');
+
+    const channel = promptResult+":lobby";
     const url = 'wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket';
 
     // Declare a global variable to hold the WebSocket connection

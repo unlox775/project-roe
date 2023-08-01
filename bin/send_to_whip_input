@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+
+import sys
+import json
+import requests
+
+# read from stdin
+stdin_data = sys.stdin.read()
+
+# prepare the data
+data = {"message": stdin_data}
+
+# send a POST request
+response = requests.post("https://abandoned-scared-halibut.gigalixirapp.com/api/whip", json=data)
+
+# print the response
+print(response.text)
