@@ -6,8 +6,8 @@ File.mkdir_p!("release")
 {:ok, ast} = Code.string_to_quoted(code)
 
 Code.require_file("ast_compiler.ex")
-pedge_ast = AstCompiler.parse_ast(ast)
-AstCompiler.validate_ast(pedge_ast)
-AstCompiler.compile_prompts(pedge_ast)
+pej_ast = AstCompiler.parse_ast(ast)
+AstCompiler.validate_ast(pej_ast)
+AstCompiler.compile_prompts(pej_ast)
 
-File.write!("release/main.pjc", inspect(pedge_ast))
+File.write!("release/main.pjc", inspect(pej_ast))

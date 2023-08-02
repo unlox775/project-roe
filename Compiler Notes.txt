@@ -112,6 +112,11 @@ Rules:
     }
   },
   %{
+    id: nil,
+    method: "store_object"
+    params: %{object_name: "plot_text"},
+  },
+  %{
     id: "bard/04_plot_to_json",
     method: "ai_object_extract",
     params: %{
@@ -124,10 +129,14 @@ Rules:
   %{
     id: nil,
     method: "store_object",
-    params: %{object_name: "plot_simple"}},
+    params: %{object_name: "plot_simple"}
+  },
   %{
     id: nil,
     method: "clone_object",
-    params: %{clone_from_object_name: "plot_simple", object_name: "plot_full"}
+    params: %{
+      clone_from_object_name: "plot_simple",
+      object_name: "plot_full"
+    }
   }
 ]

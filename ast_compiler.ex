@@ -76,7 +76,7 @@ defmodule AstCompiler do
   def parse_command({function_name, _, args}) when is_atom(function_name) do
     # if function name is not in @allowed_opts, raise a compile error
     if !Map.has_key?(@allowed_opts, function_name) do
-      raise "PEDGE: Invalid function name: #{function_name}"
+      raise "PEJ: Invalid function name: #{function_name}"
     end
 
     case {function_name,args} do
@@ -107,7 +107,7 @@ defmodule AstCompiler do
         }]
 
       _ ->
-        raise "PEDGE: Invalid function call: #{function_name}(#{args |> Enum.join(", ")})"
+        raise "PEJ: Invalid function call: #{function_name}(#{args |> Enum.join(", ")})"
     end
   end
 
@@ -124,7 +124,7 @@ defmodule AstCompiler do
     opts = Map.new(opts)
     # if there are any disallowed opts (not in list for this function of @allowed_opts), raise a compile error
     if Map.keys(opts) |> Enum.any?(&!Enum.member?(@allowed_opts[function_name], &1)) do
-      raise "PEDGE: Invalid option(s) for #{function_name}: #{opts |> Map.keys |> Enum.join(", ")}"
+      raise "PEJ: Invalid option(s) for #{function_name}: #{opts |> Map.keys |> Enum.join(", ")}"
     end
     # merge opts map into params (only if in @allowed_opts)
     Map.merge(params, opts |> Map.take(@allowed_opts[function_name]))
@@ -145,12 +145,12 @@ defmodule AstCompiler do
     end
   end
 
-  # Function to validate the Pedge AST
+  # Function to validate the PEJ AST
   def validate_ast(ast) do
     # Make sure all the ID's are either nil or unique, and raise an error if not
     ids = ast |> Enum.map(&(&1.id)) |> Enum.reject(&is_nil/1)
     if ids |> Enum.uniq() |> length() != length(ids) do
-      raise "PEDGE: Duplicate ID's found in AST: #{ids |> Enum.uniq() |> Enum.join(", ")}"
+      raise "PEJ: Duplicate ID's found in AST: #{ids |> Enum.uniq() |> Enum.join(", ")}"
     end
   end
 
@@ -172,7 +172,7 @@ defmodule AstCompiler do
         File.exists?(file)
       end)
     if missing_prompts != [] do
-      raise "PEDGE: Missing prompt files: #{missing_prompts |> Enum.join(", ")}"
+      raise "PEJ: Missing prompt files: #{missing_prompts |> Enum.join(", ")}"
     end
 
     prompt_files
