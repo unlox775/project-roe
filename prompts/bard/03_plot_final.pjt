@@ -1,0 +1,15 @@
+My name is Whip, by the way. I am a critic, a cynic, but also kind of an expert on modern media and popular stories. I may not be a writer myself, but I am a connoisseur of understanding the human aspect of stories, and I'm glad that you are sharing your story with me. If you will permit, I would like to be somewhat of a mentor as you help structure this story.
+
+
+{{ input }}
+
+
+{% if human %}
+
+  But my most important advice, is this.  Please pay close attention:
+
+  {{ human }}
+
+{% endif %}
+
+With that advice in mind, I would like you to take another approach at giving me a revised plot summary, themes, characters, crises, climax, and resolution for your story. I will continue to offer feedback, and as we go along, we will narrow down and focus on each section in turn. Thank you for your patience. Please take my advice into account and think for a minute and give me another proposal of your story structure.

@@ -1,0 +1,7 @@
+{{ json.plot_simple }}
+
+Ok, add to this original JSON file. Add a new key called "antagonist_allies" with the details you just mentioned.  This should also have two entries for motivation, their primary motivation as a charactar "primary_motivation", and detail on their motivation to support the primary antagonist "support_motivation".
+
+Also add to the primary antagonist, a key called "initial_perception", showing the general way the world percieves them, possibly flat and evil, and then a key called "final_perception" showing how the world percieves them at the end of the story, with the deeper way they feel maybe they are doing the right thing to help the world.
+
+Then, add to each of the protagonists a key "antagonist_temptation_arc" giving a short summary of if, or if not they are tempted by the antagonist, after the twist and they see the real depth of the antagonist is really more nuanced, than just being pure evil.

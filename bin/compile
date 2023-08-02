@@ -1,0 +1,13 @@
+#!/usr/bin/env elixir
+
+File.mkdir_p!("release")
+
+{:ok, code} = File.read("main.pj")
+{:ok, ast} = Code.string_to_quoted(code)
+
+Code.require_file("ast_compiler.ex")
+pedge_ast = AstCompiler.parse_ast(ast)
+AstCompiler.validate_ast(pedge_ast)
+AstCompiler.compile_prompts(pedge_ast)
+
+File.write!("release/main.pjc", inspect(pedge_ast))

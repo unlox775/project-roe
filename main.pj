@@ -1,0 +1,19 @@
+Context.add_conversation(:bard)
+Context.add_conversation(:whip)
+
+plot_text =
+  ai_prompt(:bard, "bard/01_plot_draft", human_input: true)
+  |> ai_pipethru(:whip, "whip/02_plot_critique")
+  |> ai_pipethru(:bard, "bard/03_plot_final", optional_human_input: true, loopback_allowed_to: "whip/02_plot_critique")
+
+plot_simple =
+  ai_object_extract(:bard, "bard/04_plot_to_json", :json, schema: Plot)
+plot_full = plot_simple
+
+antagonists_text =
+  ai_prompt(:bard, "bard/05_antagonists_draft")
+  |> ai_pipethru(:whip, "whip/06_antagonists_critique")
+  |> ai_pipethru(:bard, "bard/07_antagonists_final", optional_human_input: true, loopback_allowed_to: "whip/06_antagonists_critique")
+
+plot_full =
+  ai_object_extract(:bard, "bard/08_antagonists_to_json", :json, schema: Plot, partial: true)

@@ -1,0 +1,133 @@
+Rules:
+1) Everything has a default dependency on the line before it
+    - Unless it explicitly says it has no dependencies
+
+
+
+
+
+{:__block__, [],
+  [
+    {
+      {
+        :.,
+        [line: 1],
+        [
+          {:__aliases__, [line: 1], [:Context]},
+          :add_conversation
+        ]
+      },
+      [line: 1],
+      [:bard]
+    },
+
+    {{:., [line: 2], [{:__aliases__, [line: 2], [:Context]}, :add_conversation]},
+     [line: 2], [:whip]},
+
+    {:=, [line: 4],
+     [
+       {:plot_text, [line: 4], nil},
+       {:|>, [line: 7],
+        [
+          {:|>, [line: 6],
+           [
+             {:ai_prompt, [line: 5],
+              [:bard, "bard/01_plot_draft", [human_input: true]]},
+             {:ai_pipethru, [line: 6], [:whip, "whip/02_plot_critique"]}
+           ]},
+          {:ai_pipethru, [line: 7],
+           [
+             :bard,
+             "bard/03_plot_final",
+             [
+               optional_human_input: true,
+               loopback_allowed_to: "whip/02_plot_critique"
+             ]
+           ]}
+        ]}
+     ]},
+    {:=, [line: 9],
+     [
+       {:plot_simple, [line: 9], nil},
+       {:ai_object_extract, [line: 10],
+        [
+          :bard,
+          "bard/04_plot_to_json",
+          :json,
+          [schema: {:__aliases__, [line: 10], [:Plot]}]
+        ]}
+     ]},
+    {:=, [line: 11],
+     [{:plot_full, [line: 11], nil}, {:plot_simple, [line: 11], nil}]},
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+[
+  %{
+    id: nil,
+    method: "context_create_conversation",
+    params: %{conversation_id: "bard"}
+  },
+  %{
+    id: nil,
+    method: "context_create_conversation",
+    params: %{conversation_id: "whip"}
+  },
+  %{
+    id: "bard/01_plot_draft",
+    method: "ai_prompt",
+    params: %{
+      conversation_id: "bard",
+      human_input: true,
+      prompt: "bard/01_plot_draft"
+    }
+  },
+  %{
+    id: "whip/02_plot_critique",
+    method: "ai_pipethru",
+    params: %{
+      conversation_id: "whip",
+      prompt: "whip/02_plot_critique"
+    }
+  },
+  %{
+    id: "bard/03_plot_final",
+    method: "ai_pipethru",
+    params: %{
+      conversation_id: "bard",
+      loopback_allowed_to: "whip/02_plot_critique",
+      optional_human_input: true,
+      prompt: "bard/03_plot_final"
+    }
+  },
+  %{
+    id: "bard/04_plot_to_json",
+    method: "ai_object_extract",
+    params: %{
+      conversation_id: "bard",
+      format: "json",
+      prompt: "bard/04_plot_to_json"
+      schema: "Plot"
+    }
+  },
+  %{
+    id: nil,
+    method: "store_object",
+    params: %{object_name: "plot_simple"}},
+  %{
+    id: nil,
+    method: "clone_object",
+    params: %{clone_from_object_name: "plot_simple", object_name: "plot_full"}
+  }
+]
