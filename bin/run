@@ -1,0 +1,193 @@
+#!/usr/bin/env elixir
+
+defmodule PejjRunner do
+  @moduledoc """
+  A module to execute steps in a PEJJ script.
+  """
+
+  @input_required_methods ["ai_prompt", "ai_pipethru"]
+  @blocking_methods ["ai_prompt", "ai_pipethru", "ai_object_extract"]
+
+  @doc """
+  Entry point for the script.
+
+  Allowed syntax examples:
+  ./bin/run --input "some input"
+  cat - | ./bin/run --jump-to-step bard/01_example
+  cat - | ./bin/run --from-step whip/07_exposition --human-input -
+  cat - | ./bin/run --from-step whip/19_introspection --human-input "I want it to be wittier"
+
+  """
+  def main(args) do
+    with(
+      # Parse the arguments (input is required, step and human-input are optional)
+      {opts, _, _} <- OptionParser.parse(args, switches: [
+        input: :string,
+        jump_to_step: :string,
+        from_step: :string,
+        human_input: :boolean
+        ]),
+      # Read the step from the pjc file
+      {:ok, pejj_ast_str} <- File.read("release/main.pjc"),
+      {pejj_ast,[]} <- Code.eval_string(pejj_ast_str),
+      # Find the step to start at
+      {:ok, step, index} <- find_step(pejj_ast, opts)
+    ) do
+      execute(pejj_ast, step, index, opts)
+    else
+      {:error, reason} ->
+        IO.puts("Error: #{inspect(reason)}")
+        System.halt(1)
+      {:last} ->
+        IO.puts("Excution complete.")
+        System.halt(0)
+      error ->
+        IO.puts("Unknown error: #{inspect(error)}")
+        System.halt(1)
+    end
+  end
+
+  # Execute the step, catch it's output, and if it is not :halt, call the next step
+  def execute(pejj_ast, step, index, opts) do
+
+      # start with the step at index, and keep going until we get a :halt
+    case run_step(pejj_ast, step, index, opts) do
+      {:halt, _} ->
+        {:ok, "Done"}
+      {:error, reason} ->
+        {:error, reason}
+      {:next, new_opts} ->
+        execute(pejj_ast, pejj_ast |> Enum.at(index + 1), index + 1, new_opts)
+    end
+  end
+
+  # Run the step, and return the result
+  def run_step(pejj_ast, step, index, raw_opts) do
+    # Depending on the opts, it will need to read input from stdin
+    opts = optional_read_stdin_input(raw_opts, step)
+    # Find the function name to call in this module (step.method) and call it
+    case apply(__MODULE__, String.to_atom(step.method), [pejj_ast, step, index, opts]) do
+      {:next} -> {:next, opts}
+      {_,_} = x -> x
+    end
+  end
+
+  def optional_read_stdin_input(opts, step) do
+    # If the step requires input, read it from stdin
+    if Enum.member?(@input_required_methods, step.method) do
+      # If the input is provided, use it
+      if opts[:input] do
+        opts
+      # Otherwise, read it from stdin
+      else
+        # If human-input is provided, read from stdin
+        if opts[:human_input] do
+          {:ok, input} = IO.read(:stdio, :all)
+          Map.put(opts, :input, input)
+        # Otherwise, error out
+        else
+          {:error, "Input required for step: #{opts[:step]}"}
+        end
+      end
+    # If the step does not require input, just return the opts
+    else
+      opts
+    end
+  end
+
+  def context_create_conversation(_, %{params: %{ conversation_id: _conversation_id }}, _, _) do
+    {:next}
+  end
+
+  def ai_prompt(pejj_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
+    with {:ok, message} <- compile_template(prompt, opts),
+          {:ok} <- push_to_api(conv, message) do
+      # If the next blocking step has human_input or optional_human_input, add a human-input flag
+      human_input =
+        case next_blocking_step(pejj_ast, index+1) do
+          {:last} -> ""
+          {:ok, %{params: %{human_input: _}}} -> " --human-input \"your input here\""
+          {:ok, %{params: %{optional_human_input: _}}} -> " --human-input \"-\""
+          _ -> ""
+        end
+
+      cli_prompt = "Your Message has been pushed to the #{conv}.\n\nAfer submitting, run the following:\n\ncat - | ./bin/run --from-step #{id}#{human_input}\n\nThen it will pause for input.  Paste in the response from the AI here.  When you are done, type enter, and then hit ctrl-d to continue."
+      {:next, Map.put(opts, :cli_prompt, cli_prompt)}
+      {:halt, }
+          end
+  end
+
+  def compile_template(_, _opts) do
+    {:ok, "This is a test"}
+  end
+
+  def read_ast do
+    # Read and evaluate release/main.pc with a with() error handling
+    with {:ok, contents} <- File.read("release/main.pjc"),
+         {:ok, pejj_ast} <- Code.eval_string(contents) do
+      {:ok, pejj_ast}
+    else
+      {:error, reason} ->
+        {:error, "Error reading main.pjc: #{inspect(reason)}"}
+      error ->
+        IO.puts("Unknown error: #{inspect(error)}")
+        System.halt(1)
+    end
+  end
+
+  def find_step(pejj_ast, opts) do
+    # if step is provided, find it in the pejj file, otherwise we start at the beginning
+    cond do
+      opts[:jump_to_step] ->
+        # the :id on each pejj entry is the step name
+        match = pejj_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:jump_to_step]))
+        if match == nil do
+          {:error, "Step not found: #{opts[:jump_to_step]}"}
+        else
+          {:ok} ++ match
+        end
+
+      opts[:from_step] ->
+        # the :id on each pejj entry is the step name
+        match = pejj_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:from_step]))
+        if match == nil do
+          {:error, "Step not found: #{opts[:from_step]}"}
+        else
+          {_, done_index} = match
+          if Enum.at(pejj_ast, done_index + 1) == nil do
+            {:last, nil}
+          else
+            {:ok, Enum.at(pejj_ast, done_index + 1), done_index + 1}
+          end
+        end
+
+      true -> {:ok, pejj_ast |> Enum.at(0), 0}
+    end
+  end
+
+  def next_blocking_step(pejj_ast, index) do
+    # If the method of the current ste is in @blocking_methods, return this step
+    step =
+      cond do
+        Enum.member?(@blocking_methods, Enum.at(pejj_ast, index).method) ->
+          Enum.at(pejj_ast, index)
+        Enum.at(pejj_ast, index + 1) == nil ->
+          :last
+        true -> next_blocking_step(pejj_ast, index + 1)
+      end
+
+    # If the step is not found, error out
+    case step do
+      :last -> {:last}
+      _ -> {:ok, step}
+    end
+  end
+
+  def push_to_api(_,_) do
+  #   # TODO: Replace this with your actual API call logic
+  #   %{result: "OK", next_command: "cat | ./bin/run --step next_step"}
+    {:ok}
+  end
+end
+
+PejjRunner.main(System.argv())

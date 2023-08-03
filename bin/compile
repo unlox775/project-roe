@@ -6,8 +6,16 @@ File.mkdir_p!("release")
 {:ok, ast} = Code.string_to_quoted(code)
 
 Code.require_file("ast_compiler.ex")
-pej_ast = AstCompiler.parse_ast(ast)
-AstCompiler.validate_ast(pej_ast)
-AstCompiler.compile_prompts(pej_ast)
+pejj_ast = AstCompiler.parse_ast(ast)
+AstCompiler.validate_ast(pejj_ast)
+prompt_files = AstCompiler.compile_prompts(pejj_ast)
 
-File.write!("release/main.pjc", inspect(pej_ast))
+# Copy all the prompt files under release/prompts/
+prompt_files |> Enum.each(fn filename ->
+  new_file_path = "release/#{filename}"
+  dirname = Path.dirname(new_file_path)
+  File.mkdir_p!(dirname)
+  File.write!(new_file_path, File.read!(filename))
+end)
+
+File.write!("release/main.pjc", inspect(pejj_ast))
