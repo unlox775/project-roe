@@ -5,8 +5,10 @@ defmodule PidgeRunner do
   A module to execute steps in a Pidge script.
   """
 
-  @input_required_methods ["ai_pipethru"]
-  @blocking_methods ["ai_prompt", "ai_pipethru", "ai_object_extract"]
+  @transit_tmp_dir "/tmp/roe/transit"
+  @input_required_methods [:ai_pipethru]
+  @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract]
 
   @doc """
   Entry point for the script.
@@ -25,9 +27,10 @@ defmodule PidgeRunner do
       # Read the step from the pjc file
       {:ok, pidge_ast} <- read_ast(opts),
       # Find the step to start at
-      {:ok, step, index} <- find_step(pidge_ast, opts)
+      {:ok, step, index} <- find_step(pidge_ast, opts),
+      {:halt, _} <- execute(pidge_ast, step, index, opts)
     ) do
-      execute(pidge_ast, step, index, opts)
+      System.halt(0)
     else
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
@@ -128,15 +131,14 @@ defmodule PidgeRunner do
 
   # Execute the step, catch it's output, and if it is not :halt, call the next step
   def execute(pidge_ast, step, index, opts) do
-
-      # start with the step at index, and keep going until we get a :halt
+    # start with the step at index, and keep going until we get a :halt
     case run_step(pidge_ast, step, index, opts) do
       {:halt, opts} ->
         cond do
-          opts[:cli_prompt] -> IO.puts("Execution halted:\n#{opts[:cli_prompt]}")
+          opts[:cli_prompt] -> IO.puts("Runtime Finshed.\n\n#{opts[:cli_prompt]}")
           true -> nil
         end
-        {:ok, "Done"}
+        {:halt, "Done"}
       {:error, reason} ->
         {:error, reason}
       {:next, new_opts} ->
@@ -149,10 +151,33 @@ defmodule PidgeRunner do
     bug(raw_opts, 2, [label: "run_step", step: step])
     # Depending on the opts, it will need to read input from stdin
     opts = optional_read_stdin_input(raw_opts, step)
-    # Find the function name to call in this module (step.method) and call it
-    case apply(__MODULE__, String.to_atom(step.method), [pidge_ast, step, index, opts]) do
-      {:next} -> {:next, opts}
-      {_,_} = x -> x
+
+    # Validate the step, and the options
+    with 1 <- 1,
+      {:ok} <- validate_step(step, opts),
+      # Run the step
+      {:next} <- apply(__MODULE__, step.method, [pidge_ast, step, index, opts])
+    do
+      {:next, opts}
+    else
+      {:halt, opts} ->
+        {:halt, opts}
+      {:error, reason} ->
+        {:error, reason}
+      error ->
+        {:error, "Error running step: #{inspect(error)}"}
+    end
+  end
+
+  def validate_step(step, opts) do
+    cond do
+      !Enum.member?(@allowed_methods, step.method) ->
+        bug(opts, 2, [label: "validate_step 1", step: step])
+        {:error, "Method #{step.method} is not allowed"}
+      Map.has_key?(step.params, :human_input) && (! Keyword.has_key?(opts, :human_input) || opts[:human_input == "-"]) ->
+        bug(opts, 2, [label: "validate_step 2", step: step])
+        {:error, "Human input required for step: #{step.method}"}
+      true -> {:ok}
     end
   end
 
@@ -179,9 +204,9 @@ defmodule PidgeRunner do
     {:next}
   end
 
-  def ai_prompt(pidge_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
+  def ai_prompt(pidge_ast, %{id: id, method: method, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
     with {:ok, message} <- compile_template(prompt, opts),
-          {:ok} <- push_to_api(conv, message) do
+          {:ok} <- push_to_api(conv, message, opts) do
       # If the next blocking step has human_input or optional_human_input, add a human-input flag
       human_input =
         case next_blocking_step(pidge_ast, index+1) do
@@ -191,12 +216,15 @@ defmodule PidgeRunner do
           _ -> ""
         end
 
-      cli_prompt = "Your Message has been pushed to the #{conv}.\n\nAfer submitting, run the following:\n\ncat - | ./bin/run --from-step #{id}#{human_input}\n\nThen it will pause for input.  Paste in the response from the AI here.  When you are done, type enter, and then hit ctrl-d to continue."
+      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following:\n\n    ./bin/run --from-step #{id}#{human_input}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
       {:halt, opts ++ [cli_prompt: cli_prompt]}
     else
-      error -> {:error, "Error in ai_prompt: #{inspect(error)}"}
+      error -> {:error, "Error in #{method}: #{inspect(error)}"}
     end
   end
+
+  # behaves the same as ai_prompt, but @input_required_methods is true
+  def ai_pipethru(pidge_ast, step, index, opts), do: ai_prompt(pidge_ast, step, index, opts)
 
   def compile_template(_, _opts) do
     {:ok, "This is a test"}
@@ -207,7 +235,7 @@ defmodule PidgeRunner do
     # Read and evaluate release/main.pc with a with() error handling
     with {:ok, contents} <- File.read("release/main.pjc"),
          {[%{} | _] = pidge_ast, []} <- Code.eval_string(contents) do
-      bug(opts, 2, [ast_content: pidge_ast])
+      bug(opts, 3, [ast_content: pidge_ast])
       {:ok, pidge_ast}
     else
       {:error, reason} ->
@@ -266,10 +294,36 @@ defmodule PidgeRunner do
     end
   end
 
-  def push_to_api(_,_) do
-  #   # TODO: Replace this with your actual API call logic
-  #   %{result: "OK", next_command: "cat | ./bin/run --step next_step"}
-    {:ok}
+  def push_to_api(conv,message,opts) do
+    shell_command = "./bin/send_to_#{conv}_input"
+    # Run the shell command from elixir and pipe input to it, like this, but as cleanly as possible as the message can sometimes be large and have special characters:
+    with(
+      # Make /tmp/roe/transmit directory
+      {:make_dir, :ok} <- {:make_dir, File.mkdir_p(@transit_tmp_dir)},
+      # come up with a random filename
+      filename <- Base.encode64(:crypto.strong_rand_bytes(16)),
+      # Write the message to that file
+      {:write_tmp_file, :ok }<- {:write_tmp_file, File.write("#{@transit_tmp_dir}/#{filename}", message)},
+      # Call Systen.cmd, piping the message to the shell command
+      bash_args = ["-c","cat #{@transit_tmp_dir}/#{filename} | #{shell_command}"],
+      {output, 0} <- System.cmd("bash", bash_args)
+      # ,
+      # # remove the file
+      # :ok <- File.rm("#{@transit_tmp_dir}/#{filename}")
+    ) do
+      bug(opts, 2, [label: "Pushed to API", output: output])
+      bug(opts, 3, [label: "Message that was pushed:", message: message])
+      bug(opts, 4, [label: "Bash args for the command that was run:", bash_args: bash_args])
+      bug(opts, 4, [label: "Temp Filename:", filename: "#{@transit_tmp_dir}/#{filename}"])
+      {:ok}
+    else
+      {:make_dir, {:error, reason}} ->
+        {:error, "Error making directory: #{inspect(reason)}"}
+      {:write_tmp_file, {:error, reason}} ->
+        {:error, "Error writing to temp file: #{inspect(reason)}"}
+      error ->
+        {:error, "Error pushing to API: #{inspect(error)}"}
+    end
   end
 end
 
