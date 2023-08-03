@@ -295,35 +295,44 @@ defmodule PidgeRunner do
   end
 
   def push_to_api(conv,message,opts) do
-    shell_command = "./bin/send_to_#{conv}_input"
-    # Run the shell command from elixir and pipe input to it, like this, but as cleanly as possible as the message can sometimes be large and have special characters:
-    with(
-      # Make /tmp/roe/transmit directory
-      {:make_dir, :ok} <- {:make_dir, File.mkdir_p(@transit_tmp_dir)},
-      # come up with a random filename
-      filename <- Base.encode64(:crypto.strong_rand_bytes(16)),
-      # Write the message to that file
-      {:write_tmp_file, :ok }<- {:write_tmp_file, File.write("#{@transit_tmp_dir}/#{filename}", message)},
-      # Call Systen.cmd, piping the message to the shell command
-      bash_args = ["-c","cat #{@transit_tmp_dir}/#{filename} | #{shell_command}"],
-      {output, 0} <- System.cmd("bash", bash_args)
-      # ,
-      # # remove the file
-      # :ok <- File.rm("#{@transit_tmp_dir}/#{filename}")
-    ) do
-      bug(opts, 2, [label: "Pushed to API", output: output])
-      bug(opts, 3, [label: "Message that was pushed:", message: message])
-      bug(opts, 4, [label: "Bash args for the command that was run:", bash_args: bash_args])
-      bug(opts, 4, [label: "Temp Filename:", filename: "#{@transit_tmp_dir}/#{filename}"])
-      {:ok}
-    else
-      {:make_dir, {:error, reason}} ->
-        {:error, "Error making directory: #{inspect(reason)}"}
-      {:write_tmp_file, {:error, reason}} ->
-        {:error, "Error writing to temp file: #{inspect(reason)}"}
-      error ->
-        {:error, "Error pushing to API: #{inspect(error)}"}
+    # Prepare the data
+    data = %{ "message" => message }
+
+    # Send a POST request
+    case HTTPoison.post("https://abandoned-scared-halibut.gigalixirapp.com/api/#{conv}", Poison.encode!(data), [{"Content-Type", "application/json"}]) do
+      {:ok, response} -> {:ok}
+      {:error, error} -> {:error, error}
     end
+
+    # shell_command = "./bin/send_to_#{conv}_input"
+    # # Run the shell command from elixir and pipe input to it, like this, but as cleanly as possible as the message can sometimes be large and have special characters:
+    # with(
+    #   # Make /tmp/roe/transmit directory
+    #   {:make_dir, :ok} <- {:make_dir, File.mkdir_p(@transit_tmp_dir)},
+    #   # come up with a random filename
+    #   filename <- Base.encode64(:crypto.strong_rand_bytes(16)),
+    #   # Write the message to that file
+    #   {:write_tmp_file, :ok }<- {:write_tmp_file, File.write("#{@transit_tmp_dir}/#{filename}", message)},
+    #   # Call Systen.cmd, piping the message to the shell command
+    #   bash_args = ["-c","cat #{@transit_tmp_dir}/#{filename} | #{shell_command}"],
+    #   {output, 0} <- System.cmd("bash", bash_args)
+    #   # ,
+    #   # # remove the file
+    #   # :ok <- File.rm("#{@transit_tmp_dir}/#{filename}")
+    # ) do
+    #   bug(opts, 2, [label: "Pushed to API", output: output])
+    #   bug(opts, 3, [label: "Message that was pushed:", message: message])
+    #   bug(opts, 4, [label: "Bash args for the command that was run:", bash_args: bash_args])
+    #   bug(opts, 4, [label: "Temp Filename:", filename: "#{@transit_tmp_dir}/#{filename}"])
+    #   {:ok}
+    # else
+    #   {:make_dir, {:error, reason}} ->
+    #     {:error, "Error making directory: #{inspect(reason)}"}
+    #   {:write_tmp_file, {:error, reason}} ->
+    #     {:error, "Error writing to temp file: #{inspect(reason)}"}
+    #   error ->
+    #     {:error, "Error pushing to API: #{inspect(error)}"}
+    # end
   end
 end
 
