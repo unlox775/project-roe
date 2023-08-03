@@ -1,11 +1,11 @@
 #!/usr/bin/env elixir
 
-defmodule PejjRunner do
+defmodule PidgeRunner do
   @moduledoc """
-  A module to execute steps in a PEJJ script.
+  A module to execute steps in a Pidge script.
   """
 
-  @input_required_methods ["ai_prompt", "ai_pipethru"]
+  @input_required_methods ["ai_pipethru"]
   @blocking_methods ["ai_prompt", "ai_pipethru", "ai_object_extract"]
 
   @doc """
@@ -19,21 +19,15 @@ defmodule PejjRunner do
 
   """
   def main(args) do
+    opts = parse_opts(args)
+
     with(
-      # Parse the arguments (input is required, step and human-input are optional)
-      {opts, _, _} <- OptionParser.parse(args, switches: [
-        input: :string,
-        jump_to_step: :string,
-        from_step: :string,
-        human_input: :boolean
-        ]),
       # Read the step from the pjc file
-      {:ok, pejj_ast_str} <- File.read("release/main.pjc"),
-      {pejj_ast,[]} <- Code.eval_string(pejj_ast_str),
+      {:ok, pidge_ast} <- read_ast(opts),
       # Find the step to start at
-      {:ok, step, index} <- find_step(pejj_ast, opts)
+      {:ok, step, index} <- find_step(pidge_ast, opts)
     ) do
-      execute(pejj_ast, step, index, opts)
+      execute(pidge_ast, step, index, opts)
     else
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
@@ -47,26 +41,116 @@ defmodule PejjRunner do
     end
   end
 
+  def parse_opts(args) do
+    switches = [
+      input: :string,
+      jump_to_step: :string,
+      from_step: :string,
+      human_input: :string,
+      verbose: :boolean,
+      help: :boolean
+      ]
+    case OptionParser.parse(args, switches: switches) do
+      {opts, _remaining, _invalid} ->
+        # If --help was passed, print the help and exit
+        if opts[:help] do
+          print_help()
+          System.halt(0)
+        end
+
+        # start with a count of times --verbose was passed
+        verbosity = opts |> Enum.reduce(0, fn {key, _}, acc ->
+          cond do
+            key == :verbose -> acc + 1
+            true -> acc
+          end
+        end)
+
+        # now loop[ through the remaining args and count the number of times -v was passed,
+        # including options like -vv as 2 and -vvvvv as 5
+        verbosity = args |> Enum.reduce(verbosity, fn arg, acc ->
+          # Get the number of v's in the argument
+          match = Regex.run(~r/^-(v+)$/, arg)
+          if match do
+            # add 1 to verbosity for the length of the match
+            acc + String.length(Enum.at(match,1))
+          else
+            acc
+          end
+        end)
+
+        new_opts = opts ++ [verbosity: verbosity]
+        bug(new_opts,2,[verbosity_level: verbosity])
+
+        new_opts
+
+    error ->
+        IO.puts("Options Read Error: #{inspect(error)}")
+        System.halt(1)
+    end
+  end
+
+  def print_help do
+    IO.puts("""
+    Usage: ./bin/run [OPTIONS]
+
+    Options:
+      --input              Define input for the script
+      --jump_to_step       Jump to a specific step in the program
+      --from_step          Start from a specific step in the program
+      --human_input        Provide human input for the program
+      --verbose / -v       Enable verbose mode. This option can be used multiple times to increase verbosity level
+      --help / -h          Display this help message
+
+    Examples:
+      ./bin/run --input "This is text to ask the AI.  Why is the sky blue?"
+      ./bin/run --jump_to_step step3 --verbose
+      ./bin/run -vv --human_input "Hello, world!"
+    """)
+  end
+
+
+  # debug function passed the opts, level of debugging, and list of things to print
+  def bug(opts, level, [label: label_only]) do
+    # if the verbosity is greater than or equal to the level of debugging
+    if opts[:verbosity] >= level do
+      # print the label
+      IO.puts(label_only)
+    end
+  end
+  def bug(opts, level, stuff_to_debug) do
+    # if the verbosity is greater than or equal to the level of debugging
+    if opts[:verbosity] >= level do
+      # print the list of things to print
+      IO.inspect(stuff_to_debug)
+    end
+  end
+
   # Execute the step, catch it's output, and if it is not :halt, call the next step
-  def execute(pejj_ast, step, index, opts) do
+  def execute(pidge_ast, step, index, opts) do
 
       # start with the step at index, and keep going until we get a :halt
-    case run_step(pejj_ast, step, index, opts) do
-      {:halt, _} ->
+    case run_step(pidge_ast, step, index, opts) do
+      {:halt, opts} ->
+        cond do
+          opts[:cli_prompt] -> IO.puts("Execution halted:\n#{opts[:cli_prompt]}")
+          true -> nil
+        end
         {:ok, "Done"}
       {:error, reason} ->
         {:error, reason}
       {:next, new_opts} ->
-        execute(pejj_ast, pejj_ast |> Enum.at(index + 1), index + 1, new_opts)
+        execute(pidge_ast, pidge_ast |> Enum.at(index + 1), index + 1, new_opts)
     end
   end
 
   # Run the step, and return the result
-  def run_step(pejj_ast, step, index, raw_opts) do
+  def run_step(pidge_ast, step, index, raw_opts) do
+    bug(raw_opts, 2, [label: "run_step", step: step])
     # Depending on the opts, it will need to read input from stdin
     opts = optional_read_stdin_input(raw_opts, step)
     # Find the function name to call in this module (step.method) and call it
-    case apply(__MODULE__, String.to_atom(step.method), [pejj_ast, step, index, opts]) do
+    case apply(__MODULE__, String.to_atom(step.method), [pidge_ast, step, index, opts]) do
       {:next} -> {:next, opts}
       {_,_} = x -> x
     end
@@ -80,14 +164,10 @@ defmodule PejjRunner do
         opts
       # Otherwise, read it from stdin
       else
-        # If human-input is provided, read from stdin
-        if opts[:human_input] do
-          {:ok, input} = IO.read(:stdio, :all)
-          Map.put(opts, :input, input)
-        # Otherwise, error out
-        else
-          {:error, "Input required for step: #{opts[:step]}"}
-        end
+        # If input is provided, read from stdin
+        IO.puts("Reading stdin input for step: #{step.method}")
+        input = IO.read(:stdio, :all)
+        opts ++ [input: input]
       end
     # If the step does not require input, just return the opts
     else
@@ -99,12 +179,12 @@ defmodule PejjRunner do
     {:next}
   end
 
-  def ai_prompt(pejj_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
+  def ai_prompt(pidge_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
     with {:ok, message} <- compile_template(prompt, opts),
           {:ok} <- push_to_api(conv, message) do
       # If the next blocking step has human_input or optional_human_input, add a human-input flag
       human_input =
-        case next_blocking_step(pejj_ast, index+1) do
+        case next_blocking_step(pidge_ast, index+1) do
           {:last} -> ""
           {:ok, %{params: %{human_input: _}}} -> " --human-input \"your input here\""
           {:ok, %{params: %{optional_human_input: _}}} -> " --human-input \"-\""
@@ -112,35 +192,38 @@ defmodule PejjRunner do
         end
 
       cli_prompt = "Your Message has been pushed to the #{conv}.\n\nAfer submitting, run the following:\n\ncat - | ./bin/run --from-step #{id}#{human_input}\n\nThen it will pause for input.  Paste in the response from the AI here.  When you are done, type enter, and then hit ctrl-d to continue."
-      {:next, Map.put(opts, :cli_prompt, cli_prompt)}
-      {:halt, }
-          end
+      {:halt, opts ++ [cli_prompt: cli_prompt]}
+    else
+      error -> {:error, "Error in ai_prompt: #{inspect(error)}"}
+    end
   end
 
   def compile_template(_, _opts) do
     {:ok, "This is a test"}
   end
 
-  def read_ast do
+  def read_ast(opts) do
+    bug(opts, 1, [label: "Reading AST..."])
     # Read and evaluate release/main.pc with a with() error handling
     with {:ok, contents} <- File.read("release/main.pjc"),
-         {:ok, pejj_ast} <- Code.eval_string(contents) do
-      {:ok, pejj_ast}
+         {[%{} | _] = pidge_ast, []} <- Code.eval_string(contents) do
+      bug(opts, 2, [ast_content: pidge_ast])
+      {:ok, pidge_ast}
     else
       {:error, reason} ->
         {:error, "Error reading main.pjc: #{inspect(reason)}"}
       error ->
-        IO.puts("Unknown error: #{inspect(error)}")
+        IO.puts("Unknown error reading AST: #{inspect(error)}")
         System.halt(1)
     end
   end
 
-  def find_step(pejj_ast, opts) do
-    # if step is provided, find it in the pejj file, otherwise we start at the beginning
+  def find_step(pidge_ast, opts) do
+    # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
       opts[:jump_to_step] ->
-        # the :id on each pejj entry is the step name
-        match = pejj_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:jump_to_step]))
+        # the :id on each pidge entry is the step name
+        match = pidge_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:jump_to_step]))
         if match == nil do
           {:error, "Step not found: #{opts[:jump_to_step]}"}
         else
@@ -148,32 +231,32 @@ defmodule PejjRunner do
         end
 
       opts[:from_step] ->
-        # the :id on each pejj entry is the step name
-        match = pejj_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:from_step]))
+        # the :id on each pidge entry is the step name
+        match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == opts[:from_step] end)
         if match == nil do
           {:error, "Step not found: #{opts[:from_step]}"}
         else
           {_, done_index} = match
-          if Enum.at(pejj_ast, done_index + 1) == nil do
+          if Enum.at(pidge_ast, done_index + 1) == nil do
             {:last, nil}
           else
-            {:ok, Enum.at(pejj_ast, done_index + 1), done_index + 1}
+            {:ok, Enum.at(pidge_ast, done_index + 1), done_index + 1}
           end
         end
 
-      true -> {:ok, pejj_ast |> Enum.at(0), 0}
+      true -> {:ok, pidge_ast |> Enum.at(0), 0}
     end
   end
 
-  def next_blocking_step(pejj_ast, index) do
+  def next_blocking_step(pidge_ast, index) do
     # If the method of the current ste is in @blocking_methods, return this step
     step =
       cond do
-        Enum.member?(@blocking_methods, Enum.at(pejj_ast, index).method) ->
-          Enum.at(pejj_ast, index)
-        Enum.at(pejj_ast, index + 1) == nil ->
+        Enum.member?(@blocking_methods, Enum.at(pidge_ast, index).method) ->
+          Enum.at(pidge_ast, index)
+        Enum.at(pidge_ast, index + 1) == nil ->
           :last
-        true -> next_blocking_step(pejj_ast, index + 1)
+        true -> next_blocking_step(pidge_ast, index + 1)
       end
 
     # If the step is not found, error out
@@ -190,4 +273,4 @@ defmodule PejjRunner do
   end
 end
 
-PejjRunner.main(System.argv())
+PidgeRunner.main(System.argv())
