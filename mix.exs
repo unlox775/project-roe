@@ -6,7 +6,7 @@ defmodule Pidge.MixProject do
       app: :pidge,
       version: "0.1.0",
       elixir: "~> 1.15",
-      start_permanent: Mix.env() == :prod,
+      escript: escript_config(),
       deps: deps()
     ]
   end
@@ -21,8 +21,16 @@ defmodule Pidge.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:httpoison, "~> 1.8.0"},
+      {:poison, "~> 5.0"},
+      {:solid, "~> 0.7.0"}
+    ]
+  end
+
+  def escript_config do
+    [
+      main_module: Pidge,
+      emu_args: "+Bd -noinput"
     ]
   end
 end

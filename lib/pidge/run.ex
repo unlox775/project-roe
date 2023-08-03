@@ -1,26 +1,14 @@
-#!/usr/bin/env elixir
-
-defmodule PidgeRunner do
+defmodule Pidge.Run do
   @moduledoc """
   A module to execute steps in a Pidge script.
   """
 
-  @transit_tmp_dir "/tmp/roe/transit"
+  # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
   @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract]
 
-  @doc """
-  Entry point for the script.
-
-  Allowed syntax examples:
-  ./bin/run --input "some input"
-  cat - | ./bin/run --jump-to-step bard/01_example
-  cat - | ./bin/run --from-step whip/07_exposition --human-input -
-  cat - | ./bin/run --from-step whip/19_introspection --human-input "I want it to be wittier"
-
-  """
-  def main(args) do
+  def run(args) do
     opts = parse_opts(args)
 
     with(
@@ -300,7 +288,9 @@ defmodule PidgeRunner do
 
     # Send a POST request
     case HTTPoison.post("https://abandoned-scared-halibut.gigalixirapp.com/api/#{conv}", Poison.encode!(data), [{"Content-Type", "application/json"}]) do
-      {:ok, response} -> {:ok}
+      {:ok, output} ->
+        bug(opts, 2, [label: "Pushed to API", output: output])
+        {:ok}
       {:error, error} -> {:error, error}
     end
 
@@ -335,5 +325,3 @@ defmodule PidgeRunner do
     # end
   end
 end
-
-PidgeRunner.main(System.argv())

@@ -1,18 +1,9 @@
 defmodule Pidge do
-  @moduledoc """
-  Documentation for `Pidge`.
-  """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Pidge.hello()
-      :world
-
-  """
-  def hello do
-    :world
+  def main(args) do
+    case args do
+      ["compile" | rest_args] -> Pidge.Compiler.compile(rest_args)
+      ["run" | rest_args] -> Pidge.Run.run(rest_args)
+      _ -> IO.puts("Unknown command")
+    end
   end
 end
