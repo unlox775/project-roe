@@ -3,10 +3,12 @@ defmodule Pidge.Run do
   A module to execute steps in a Pidge script.
   """
 
+  alias Pidge.State
+
   # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object]
 
   def run(args) do
     opts = parse_opts(args)
@@ -83,7 +85,7 @@ defmodule Pidge.Run do
 
   def print_help do
     IO.puts("""
-    Usage: ./bin/run [OPTIONS]
+    Usage: pidge run [OPTIONS]
 
     Options:
       --input              Define input for the script
@@ -94,9 +96,9 @@ defmodule Pidge.Run do
       --help / -h          Display this help message
 
     Examples:
-      ./bin/run --input "This is text to ask the AI.  Why is the sky blue?"
-      ./bin/run --jump_to_step step3 --verbose
-      ./bin/run -vv --human_input "Hello, world!"
+      pidge run --input "This is text to ask the AI.  Why is the sky blue?"
+      pidge run --jump_to_step step3 --verbose
+      pidge run -vv --human_input "Hello, world!"
     """)
   end
 
@@ -195,16 +197,8 @@ defmodule Pidge.Run do
   def ai_prompt(pidge_ast, %{id: id, method: method, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
     with {:ok, message} <- compile_template(prompt, opts),
           {:ok} <- push_to_api(conv, message, opts) do
-      # If the next blocking step has human_input or optional_human_input, add a human-input flag
-      human_input =
-        case next_blocking_step(pidge_ast, index+1) do
-          {:last} -> ""
-          {:ok, %{params: %{human_input: _}}} -> " --human-input \"your input here\""
-          {:ok, %{params: %{optional_human_input: _}}} -> " --human-input \"-\""
-          _ -> ""
-        end
-
-      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following:\n\n    ./bin/run --from-step #{id}#{human_input}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
+      next_command = get_next_command_to_run(pidge_ast, index, id, opts)
+      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following:\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
       {:halt, opts ++ [cli_prompt: cli_prompt]}
     else
       error -> {:error, "Error in #{method}: #{inspect(error)}"}
@@ -214,8 +208,60 @@ defmodule Pidge.Run do
   # behaves the same as ai_prompt, but @input_required_methods is true
   def ai_pipethru(pidge_ast, step, index, opts), do: ai_prompt(pidge_ast, step, index, opts)
 
-  def compile_template(_, _opts) do
-    {:ok, "This is a test"}
+  def store_object(_, %{params: %{ object_name: object_name }}, _, opts) do
+    State.store_object(opts[:input], object_name)
+    {:next}
+  end
+
+  def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, opts) do
+    State.clone_object(clone_from_object_name, object_name)
+    {:next}
+  end
+
+  def get_next_command_to_run(pidge_ast, index, from_id, _opts) do
+     # If the next blocking step has human_input or optional_human_input, add a human-input flag
+     human_input =
+      case next_blocking_step(pidge_ast, index+1) do
+        {:last} -> ""
+        {:ok, %{params: %{human_input: _}}} -> " --human-input \"your input here\""
+        {:ok, %{params: %{optional_human_input: _}}} -> " --human-input \"-\""
+        _ -> ""
+      end
+
+    "pidge run --from-step #{from_id}#{human_input}"
+  end
+
+  def compile_template(prompt, opts) do
+    state =
+      State.get_current_state()
+
+    keys_to_add_from_opts = [:input, :human_input, :optional_human_input]
+    # Add the keys if they are present
+    state = Enum.reduce(keys_to_add_from_opts, state, fn key, state ->
+      if Keyword.has_key?(opts, key) do
+        Map.put(state, to_string(key), opts[key])
+      else
+        state
+      end
+    end)
+    bug(opts, 2, [label: "compile_template", state: state])
+
+    # Read in the template file from /release/prompts
+    template = File.read!("release/prompts/#{prompt}.pjt")
+    bug(opts, 3, [label: "compile_template", template: template])
+
+    # Use Solid to parse the template
+    with(
+      {:ok, template} <- Solid.parse(template),
+      [_|_] = rendered <- Solid.render(template, state),
+      content when is_binary(content) <- rendered |> to_string()
+    ) do
+      bug(opts, 3, [label: "compile_template", compiled_content: content])
+      {:ok, content}
+    else
+      error ->
+        {:error, "Error compiling template: #{inspect(error)}"}
+    end
   end
 
   def read_ast(opts) do
@@ -294,7 +340,7 @@ defmodule Pidge.Run do
       {:error, error} -> {:error, error}
     end
 
-    # shell_command = "./bin/send_to_#{conv}_input"
+    # shell_command = "pidge send_to_#{conv}_input"
     # # Run the shell command from elixir and pipe input to it, like this, but as cleanly as possible as the message can sometimes be large and have special characters:
     # with(
     #   # Make /tmp/roe/transmit directory

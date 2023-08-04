@@ -23,14 +23,15 @@ defmodule Pidge.MixProject do
     [
       {:httpoison, "~> 1.8.0"},
       {:poison, "~> 5.0"},
-      {:solid, "~> 0.7.0"}
+      {:solid, "~> 0.7.0"},
+      {:jason, "~> 1.4.1"},
     ]
   end
 
   def escript_config do
     [
       main_module: Pidge,
-      emu_args: "+Bd -noinput"
+      emu_args: "+Bd"
     ]
   end
 end

@@ -56,7 +56,13 @@
         console.log('WebSocket connection closed: ', event);
 
         // If the socket was closed for a reason other than the client closing it, try to reconnect
-        if (event.code !== 3001 && event.code !== 1006) {
+        if (event.code === 1006 ) {
+            // Wait 3 seconds before trying to reconnect
+            setTimeout(function() {
+                console.log('Trying to reconnect...');
+                connect_to_websocket();
+            }, 3000);
+        } else if (event.code !== 3001 && event.code !== 1006) {
             console.log('Trying to reconnect...');
             connect_to_websocket();
         }

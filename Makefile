@@ -1,6 +1,7 @@
 .PHONY: compile
 
 build:
+	@mkdir -p release
 	mix escript.build
 	mv -f pidge release/pidge
 

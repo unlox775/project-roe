@@ -1,1 +1,1 @@
-Generate a plot for {{ input }} including the main themes, characters and crises. Don't tell me the title until the end, so you can think of a good epic title that best fits the story idea.
+Generate a plot for {{ human_input }} including the main themes, characters and crises. Don't tell me the title until the end, so you can think of a good epic title that best fits the story idea.
