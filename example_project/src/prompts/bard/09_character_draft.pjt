@@ -1,0 +1,13 @@
+For a quick refresh, this is the characters and themes from earlier:
+
+{{ plot_full }}
+
+[If any locales have this character as having experience]
+And here are some locales relevant to this character:
+
+{ locale(s) JSON }
+
+[/if]
+Okay, I'd like to focus on the character {{ character.name }}. I would like you to give me more your vision for this character. I want to get a little bit more of his background, the things in his local world, the people he interacts with day-to-day at the time of the beginning of the story, as well as the ones that were active during previous parts of his life. I think part of his backstory should include things in the past that were of comfort to him, formative in his sense of building who he is, but then also conflicts and tensions that he has had in the past. Then some specific attention to the conflicts that are going on at the moment that the story starts. This is essentially setting up the beginning of this character's arc, which we will see change throughout the book. You don't need to go into any detail yet as to his role in this book, just background information. Maybe, if he is aware of other characters in the book, a little bit about what he already knows about them before the start of the book.  Also include some specifics dates, facts, lineage, physical attributes, gifts and phobias.
+
+I don't want this in JSON format yet, lets just talk about this character for a while.

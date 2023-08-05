@@ -9,7 +9,7 @@ defmodule Pidge.Run do
   # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach]
 
   def run(args) do
     opts = parse_opts(args)
@@ -18,7 +18,7 @@ defmodule Pidge.Run do
       # Read the step from the pjc file
       {:ok, pidge_ast} <- read_ast(opts),
       # Find the step to start at
-      {:ok, last_step, step, index} <- find_step(pidge_ast, opts),
+      {:ok, opts, last_step, step, index} <- find_step(pidge_ast, opts),
       # Run post process on last step if needed
       {:ok, opts} <- post_process(last_step, opts),
       # Execute the step
@@ -76,10 +76,10 @@ defmodule Pidge.Run do
           end
         end)
 
-        new_opts = opts ++ [verbosity: verbosity]
-        bug(new_opts,2,[verbosity_level: verbosity])
+        opts = opts ++ [verbosity: verbosity]
+        bug(opts,2,[verbosity_level: verbosity])
 
-        new_opts
+        opts
 
     error ->
         IO.puts("Options Read Error: #{inspect(error)}")
@@ -146,11 +146,17 @@ defmodule Pidge.Run do
           opts[:cli_prompt] -> IO.puts("Runtime Finshed.\n\n#{opts[:cli_prompt]}")
           true -> nil
         end
-        {:halt, "Done"}
+        {:halt, opts}
       {:error, reason} ->
         {:error, reason}
-      {:next, new_opts} ->
-        execute(pidge_ast, pidge_ast |> Enum.at(index + 1), index + 1, new_opts)
+      {:next, opts} ->
+        # Check to see if we are at the end
+        if index == length(pidge_ast) - 1 do
+          {:last, opts}
+        else
+          # Run the next step
+          execute(pidge_ast, pidge_ast |> Enum.at(index + 1), index + 1, opts)
+        end
     end
   end
 
@@ -164,7 +170,7 @@ defmodule Pidge.Run do
     with 1 <- 1,
       {:ok} <- validate_step(step, opts),
       # Run the step
-      {:next} <- apply(__MODULE__, step.method, [pidge_ast, step, index, opts])
+      {:next, opts} <- apply(__MODULE__, step.method, [pidge_ast, step, index, opts])
     do
       {:next, opts}
     else
@@ -208,15 +214,15 @@ defmodule Pidge.Run do
     end
   end
 
-  def context_create_conversation(_, %{params: %{ conversation_id: _conversation_id }}, _, _) do
-    {:next}
+  def context_create_conversation(_, %{params: %{ conversation_id: _conversation_id }}, _, opts) do
+    {:next, opts}
   end
 
   def ai_prompt(pidge_ast, %{id: id, method: method, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
     with {:ok, message} <- compile_template(prompt, opts),
           {:ok} <- push_to_api(conv, message, opts) do
       next_command = get_next_command_to_run(pidge_ast, index, id, opts)
-      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following:\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
+      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following (copied to clipboard):\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
       push_next_command_to_clipboard(next_command, opts)
       {:halt, opts ++ [cli_prompt: cli_prompt]}
     else
@@ -231,15 +237,133 @@ defmodule Pidge.Run do
 
   def store_object(_, %{params: %{ object_name: object_name }}, _, opts) do
     State.store_object(opts[:input], object_name)
-    {:next}
+    {:next, opts}
   end
 
-  def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, _opts) do
+  def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, opts) do
     State.clone_object(clone_from_object_name, object_name)
-    {:next}
+    {:next, opts}
   end
 
-  def get_next_command_to_run(pidge_ast, index, from_id, _opts) do
+  def merge_into_object(_, %{params: %{ object_name: object_name }}, _, opts) do
+    State.merge_into_object(opts[:input], object_name)
+    {:next, opts}
+  end
+
+  def foreach(pidge_ast, %{params: %{sub_pidge_ast: sub_pidge_ast}} = foreach_step, ast_index, opts) do
+    # If we just finished the commands for a loop, this func will be re-called, passing an opt on what the next loop index should be
+    #   This can also be set by a prior find_step
+    foreach_loop_index =
+      case opts[:foreach_loop_index] do
+        nil -> 0
+        x -> x
+      end
+
+    # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
+    {sub_step,sub_ast_index,opts} =
+      case opts[:sub_from_step] do
+        nil -> {Enum.at(sub_pidge_ast,0), 0, opts}
+        sub_from_step ->
+          opts = Keyword.put(opts, :from_step, sub_from_step)
+          case find_step(sub_pidge_ast, opts) do
+            {:last, opts, _, _, _} -> {:next, leave_closure(opts)}
+            {:ok, opts, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index, opts}
+          end
+      end
+    bug(opts, 2, [label: "foreach #{foreach_step.seq} settings", foreach_loop_index: foreach_loop_index, sub_ast_index: sub_ast_index])
+
+
+    # Enter a closure, to keep sub-variables private
+    #  This also reads in the current loop item into scope
+    case enter_foreach_closure(opts, foreach_loop_index, foreach_step) do
+      # OK, we are in a closure, and loop vars are loaded, now start executing commands
+      {:ok, opts} ->
+        bug(opts, 3, [label: "foreach #{foreach_step.seq} entered closure"])
+        case execute(sub_pidge_ast, sub_step, sub_ast_index, opts) do
+          # execute has told us it finshed the last command in the foreach block
+          {:last, opts} ->
+            # So increment to the next loop item and call it again
+            bug(opts, 2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
+            opts = Keyword.put(opts, :foreach_loop_index, foreach_loop_index + 1)
+            foreach(pidge_ast, foreach_step, ast_index, opts)
+
+          # Otherwise, return whatever it returns as our step return
+          {_, _} = x -> x
+
+          error ->
+            {:error, "Error in foreach: #{inspect(error)}"}
+        end
+
+      # We have finished looping thru the foreach'd list
+      {:last, opts} ->
+        bug(opts, 3, [label: "foreach #{foreach_step.seq} ended"])
+        # So effectively our foreach function has completely concluded, say Next!
+        {:next, opts}
+    end
+  end
+
+  def enter_foreach_closure(opts, foreach_loop_index, %{seq: seq, params: %{
+    loop_on_variable_name: loop_on_variable_name,
+    instance_variable_name: instance_variable_name,
+    iter_variable_name: iter_variable_name,
+    }}) do
+    # Get the list to iterate on
+    state = State.get_current_state()
+    list = state |> get_nested_key(loop_on_variable_name)
+    bug(opts, 2, label: "foreach looped list", list: list)
+    bug(opts, 5, label: "foreach loop", state: state)
+
+    # If no list then raise
+    case list do
+      nil -> raise "foreach looped list is nil: #{inspect(loop_on_variable_name)}"
+      ""<>_ -> raise "foreach looped list is a string: #{inspect(loop_on_variable_name)}: #{inspect(list)}"
+      _ -> nil
+    end
+
+    # If the list is empty, or foreach_loop_index is past the end, return :last
+    bug(opts, 4, label: "foreach loop stats", foreach_loop_index: foreach_loop_index, list_count: Enum.count(list))
+    bug(opts, 4, label: "END?", test: (foreach_loop_index > (Enum.count(list) - 1)))
+    if foreach_loop_index > (Enum.count(list) - 1) do
+      bug(opts, 4, label: "END", test: (foreach_loop_index > (Enum.count(list) - 1)))
+      {:last, opts}
+    # Otherwise, set the instance variable to the Nth item in the list
+    else
+      closure_state =
+        %{
+          __foreach_loop_index: foreach_loop_index,
+          __foreach_seq: seq,
+        }
+        |> Map.put(instance_variable_name, Enum.at(list, foreach_loop_index))
+        |> Map.put(iter_variable_name, foreach_loop_index)
+      {:ok, enter_closure(opts, closure_state) }
+    end
+  end
+
+  def get_nested_key(state, keys_list) do
+    Enum.reduce(keys_list, state, fn key, acc ->
+      # silently handle non-existant keys as nil
+      if is_map(acc) && Map.has_key?(acc, key) do
+        Map.get(acc, key)
+      else
+        nil
+      end
+    end)
+  end
+
+  def enter_closure(opts, closure_state) do
+    if opts[:closure_states] do
+      Keyword.put(opts, :closure_states, opts[:closure_states] ++ [closure_state])
+    else
+      opts ++ [closure_states: [closure_state]]
+    end
+  end
+
+  def leave_closure(opts) do
+    # drop the last closure
+    Keyword.put(opts, :closure_states, Enum.drop(opts[:closure_states], -1))
+  end
+
+  def get_next_command_to_run(pidge_ast, index, from_id, opts) do
      # If the next blocking step has human_input or optional_human_input, add a human-input flag
      human_input =
       case next_blocking_step(pidge_ast, index+1) do
@@ -249,7 +373,19 @@ defmodule Pidge.Run do
         _ -> ""
       end
 
-    "pidge run --from-step #{from_id}#{human_input}"
+    "pidge run --from-step \"#{get_from_step(from_id, opts)}#{human_input}\""
+  end
+
+  def get_from_step(from_id, opts) do
+    closure_trail_list =
+      opts[:closure_states]
+      |> Enum.map(fn %{__foreach_loop_index: foreach_loop_index, __foreach_seq: seq} ->
+        "foreach-#{seq}[#{foreach_loop_index}]"
+      end)
+    case closure_trail_list do
+      [] -> "#{from_id}"
+      _ -> "#{Enum.join(closure_trail_list, ".")}.#{from_id}"
+    end
   end
 
   def push_next_command_to_clipboard(next_command, _opts) do
@@ -262,6 +398,13 @@ defmodule Pidge.Run do
   def compile_template(prompt, opts) do
     state =
       State.get_current_state()
+
+    # merge each of the closures into the state
+    state =
+      Enum.reduce(opts[:closure_states], state, fn closure_state, state ->
+        bug(opts, 2, [label: "compile_template", closure_state: closure_state])
+        Map.merge(state, closure_state)
+      end)
 
     keys_to_add_from_opts = [:input, :human_input, :optional_human_input]
     # Add the keys if they are present
@@ -309,32 +452,52 @@ defmodule Pidge.Run do
   end
 
   def find_step(pidge_ast, opts) do
+    # Remove the opts[:sub_from_step] key if it exists
+    opts = Keyword.delete(opts, :sub_from_step)
+
     # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
       opts[:jump_to_step] ->
         # the :id on each pidge entry is the step name
-        match = pidge_ast |> Enum.with_index() |> Enum.find(&(Enum.at(&1,0).id == opts[:jump_to_step]))
+        match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).id == opts[:jump_to_step]))
         if match == nil do
           {:error, "Step not found: #{opts[:jump_to_step]}"}
         else
-          {:ok, nil} ++ match
+          {step, index} = match
+          {:ok, opts, nil, step, index}
         end
 
       opts[:from_step] ->
-        # the :id on each pidge entry is the step name
-        match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == opts[:from_step] end)
-        if match == nil do
-          {:error, "Step not found: #{opts[:from_step]}"}
-        else
-          {_, done_index} = match
-          if Enum.at(pidge_ast, done_index + 1) == nil do
-            {:last, nil, nil, nil}
-          else
-            {:ok, Enum.at(pidge_ast, done_index), Enum.at(pidge_ast, done_index + 1), done_index + 1}
-          end
+        # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
+        case Regex.run(~r/^foreach-(\d+)\[(\d+)\]\.(.+)$/, opts[:from_step]) do
+          [_,seq,foreach_loop_index,sub_from_step] ->
+            bug(opts, 4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
+            # Get the step with the :seq key that matches
+            # Our goal here: we need to kick the index to the foreach, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the loop
+            match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
+            opts =
+              opts
+              |> Keyword.put(:sub_from_step, sub_from_step)
+              |> Keyword.put(:foreach_loop_index, String.to_integer(foreach_loop_index))
+            if match == nil do
+              {:error, "Foreach Step not found: #{opts[:from_step]}"}
+            else
+              {step, index} = match
+              {:ok, Keyword.put(opts, :sub_from_step, sub_from_step), nil, step, index}
+            end
+
+          _ ->
+            # the :id on each pidge entry is the step name
+            match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == opts[:from_step] end)
+            if match == nil do
+              {:error, "Step not found: #{opts[:from_step]}"}
+            else
+              {step, index} = match
+              {:ok, opts, step, Enum.at(pidge_ast, index + 1), index + 1}
+            end
         end
 
-      true -> {:ok, nil, pidge_ast |> Enum.at(0), 0}
+      true -> {:ok, opts, nil, Enum.at(pidge_ast, 0), 0}
     end
   end
 

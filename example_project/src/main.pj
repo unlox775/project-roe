@@ -15,8 +15,15 @@ antagonists_text =
   |> ai_pipethru(:whip, "whip/06_antagonists_critique")
   |> ai_pipethru(:bard, "bard/07_antagonists_final", optional_human_input: true, loopback_allowed_to: "whip/06_antagonists_critique")
 
-plot_full += # merge antagonists into plot
+plot_full <~
   ai_object_extract(:bard, "bard/08_antagonists_to_json", :json, schema: Plot, partial: true)
 
+foreach(plot_full.protagonists, fn {character,i} ->
+  character_text[i] =
+    ai_prompt(:bard, "bard/09_character_draft")
+    |> ai_pipethru(:whip, "whip/10_character_critique")
+    |> ai_pipethru(:bard, "bard/11_character_final", optional_human_input: true, loopback_allowed_to: "whip/10_character_critique")
 
-# Add loop
+  character_simple[i] =
+    ai_object_extract(:bard, "bard/12_character_to_json", :json, schema: character)
+end)

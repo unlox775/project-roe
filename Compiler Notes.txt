@@ -140,3 +140,37 @@ Rules:
     }
   }
 ]
+
+
+
+
+
+{:defmodule, [line: 1], [{:__aliases__, [line: 1], [:Pidge]}, [do: {:__block__, [], [{:def, [line: 3], [{:<~, [line: 3], [{:a, [line: 3], nil}, {:b, [line: 3], nil}]}, [do: {:max, [line: 3], [{:a, [line: 3], nil}, {:b, [line: 3], nil}]}]]}, {:def, [line: 4], [{:pidge, [line: 4], nil}, [do: {:__block__, [], [{{:., [line: 5], [{:__aliases__, [line: 5], [:Context]}, :add_conversation]}, [line: 5], [:bard]}, {{:., [line: 6], [{:__aliases__, [line: 6], [:Context]}, :add_conversation]}, [line: 6], [:whip]}, {:=, [line: 8], [{:plot_text, [line: 8], nil}, {:|>, [line: 11], [{:|>, [line: 10], [{:ai_prompt, [line: 9], [:bard, "bard/01_plot_draft", [human_input: true]]}, {:ai_pipethru, [line: 10], [:whip, "whip/02_plot_critique"]}]}, {:ai_pipethru, [line: 11], [:bard, "bard/03_plot_final", [optional_human_input: true, loopback_allowed_to: "whip/02_plot_critique"]]}]}]}, {:=, [line: 13], [{:plot_simple, [line: 13], nil}, {:ai_object_extract, [line: 14], [:bard, "bard/04_plot_to_json", :json, [schema: {:__aliases__, [line: 14], [:Plot]}]]}]}, {:=, [line: 15], [{:plot_full, [line: 15], nil}, {:plot_simple, [line: 15], nil}]}, {:=, [line: 17], [{:antagonists_text, [line: 17], nil}, {:|>, [line: 20], [{:|>, [line: 19], [{:ai_prompt, [line: 18], [:bard, "bard/05_antagonists_draft"]}, {:ai_pipethru, [line: 19], [:whip, "whip/06_antagonists_critique"]}]}, {:ai_pipethru, [line: 20], [:bard, "bard/07_antagonists_final", [optional_human_input: true, loopback_allowed_to: "whip/06_antagonists_critique"]]}]}]}, {:<~, [line: 22], [{:plot_full, [line: 22], nil}, {:ai_object_extract, [line: 23], [:bard, "bard/08_antagonists_to_json", :json, [schema: {:__aliases__, [line: 23], [:Plot]}, partial: true]]}]}, {:foreach, [line: 25], [{{:., [line: 25], [{:plot_full, [line: 25], nil}, :protagonists]}, [no_parens: true, line: 25], []}, {:fn, [line: 25], [{:->, [line: 25], [[{{:protagonist, [line: 25], nil}, {:i, [line: 25], nil}}], {:__block__, [], [{:=, [line: 26], [{...}, ...]}, {:=, [line: 31], [...]}]}]}]}]}]}]]}]}]]}
+
+
+[{{:., [line: 21], [{:plot_full, [line: 21], nil}, :protagonists]}, [no_parens: true, line: 21], []}, {:fn, [line: 21], [{:->, [line: 21], [[{{:protagonist, [line: 21], nil}, {:i, [line: 21], nil}}], {:__block__, [], [{:=, [line: 22], [{{:., [line: 22], [Access, :get]}, [line: 22], [{:character_text, [line: 22], nil}, {:i, [line: 22], nil}]}, {:|>, [line: 25], [{:|>, [line: 24], [{:ai_prompt, [line: 23], [:bard, "bard/09_character_draft"]}, {:ai_pipethru, [line: 24], [:whip, "whip/10_character_critique"]}]}, {:ai_pipethru, [line: 25], [:bard, "bard/11_character_final", [optional_human_input: true, loopback_allowed_to: "whip/10_character_critique"]]}]}]}, {:=, [line: 27], [{{:., [line: 27], [Access, :get]}, [line: 27], [{:character_simple, [line: 27], nil}, {:i, [line: 27], nil}]}, {:ai_object_extract, [line: 28], [:bard, "bard/12_character_to_json", :json, [schema: {:character, [line: 28], nil } ] ] } ] } ] } ] } ] } ] 
+
+
+{
+  :.,
+  [line: 21],
+  [
+    {
+      {
+        :.,
+        [line: 21],
+        [
+          {
+            :plot_full,
+            [line: 21],
+            nil
+          },
+          :protagonists
+        ]
+      },
+      [no_parens: true, line: 21],
+      []
+    },
+    :foo
+  ]
+ }
