@@ -15,5 +15,8 @@ antagonists_text =
   |> ai_pipethru(:whip, "whip/06_antagonists_critique")
   |> ai_pipethru(:bard, "bard/07_antagonists_final", optional_human_input: true, loopback_allowed_to: "whip/06_antagonists_critique")
 
-plot_full =
+plot_full += # merge antagonists into plot
   ai_object_extract(:bard, "bard/08_antagonists_to_json", :json, schema: Plot, partial: true)
+
+
+# Add loop

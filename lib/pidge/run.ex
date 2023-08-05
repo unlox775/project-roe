@@ -4,9 +4,10 @@ defmodule Pidge.Run do
   """
 
   alias Pidge.State
+  alias Pidge.Run.AIObjectExtract
 
   # @transit_tmp_dir "/tmp/roe/transit"
-  @input_required_methods [:ai_pipethru]
+  @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
   @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object]
 
@@ -17,7 +18,10 @@ defmodule Pidge.Run do
       # Read the step from the pjc file
       {:ok, pidge_ast} <- read_ast(opts),
       # Find the step to start at
-      {:ok, step, index} <- find_step(pidge_ast, opts),
+      {:ok, last_step, step, index} <- find_step(pidge_ast, opts),
+      # Run post process on last step if needed
+      {:ok, opts} <- post_process(last_step, opts),
+      # Execute the step
       {:halt, _} <- execute(pidge_ast, step, index, opts)
     ) do
       System.halt(0)
@@ -119,6 +123,20 @@ defmodule Pidge.Run do
     end
   end
 
+  def post_process(nil, opts), do: {:ok, opts}
+  def post_process(step, opts) do
+    bug(opts, 2, [label: "post_process", step: step])
+
+    opts = optional_read_stdin_input(opts, step)
+
+    # AI Object Extract. Take the input and store it as an object
+    if step.method == :ai_object_extract do
+      AIObjectExtract.post_process(step, opts)
+    else
+      {:ok, opts}
+    end
+  end
+
   # Execute the step, catch it's output, and if it is not :halt, call the next step
   def execute(pidge_ast, step, index, opts) do
     # start with the step at index, and keep going until we get a :halt
@@ -137,10 +155,10 @@ defmodule Pidge.Run do
   end
 
   # Run the step, and return the result
-  def run_step(pidge_ast, step, index, raw_opts) do
-    bug(raw_opts, 2, [label: "run_step", step: step])
+  def run_step(pidge_ast, step, index, opts) do
+    bug(opts, 2, [label: "run_step", step: step])
     # Depending on the opts, it will need to read input from stdin
-    opts = optional_read_stdin_input(raw_opts, step)
+    opts = optional_read_stdin_input(opts, step)
 
     # Validate the step, and the options
     with 1 <- 1,
@@ -166,7 +184,7 @@ defmodule Pidge.Run do
         {:error, "Method #{step.method} is not allowed"}
       Map.has_key?(step.params, :human_input) && (! Keyword.has_key?(opts, :human_input) || opts[:human_input == "-"]) ->
         bug(opts, 2, [label: "validate_step 2", step: step])
-        {:error, "Human input required for step: #{step.method}"}
+        {:error, "Human input required for step: #{step.id} / #{step.method}"}
       true -> {:ok}
     end
   end
@@ -180,7 +198,7 @@ defmodule Pidge.Run do
       # Otherwise, read it from stdin
       else
         # If input is provided, read from stdin
-        IO.puts("Reading stdin input for step: #{step.method}")
+        IO.puts("Reading stdin input for step: #{step.id} / #{step.method}")
         input = IO.read(:stdio, :all)
         opts ++ [input: input]
       end
@@ -199,6 +217,7 @@ defmodule Pidge.Run do
           {:ok} <- push_to_api(conv, message, opts) do
       next_command = get_next_command_to_run(pidge_ast, index, id, opts)
       cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following:\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
+      push_next_command_to_clipboard(next_command, opts)
       {:halt, opts ++ [cli_prompt: cli_prompt]}
     else
       error -> {:error, "Error in #{method}: #{inspect(error)}"}
@@ -207,13 +226,15 @@ defmodule Pidge.Run do
 
   # behaves the same as ai_prompt, but @input_required_methods is true
   def ai_pipethru(pidge_ast, step, index, opts), do: ai_prompt(pidge_ast, step, index, opts)
+  # behaves the same as ai_prompt, but has post_process
+  def ai_object_extract(pidge_ast, step, index, opts), do: ai_prompt(pidge_ast, step, index, opts)
 
   def store_object(_, %{params: %{ object_name: object_name }}, _, opts) do
     State.store_object(opts[:input], object_name)
     {:next}
   end
 
-  def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, opts) do
+  def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, _opts) do
     State.clone_object(clone_from_object_name, object_name)
     {:next}
   end
@@ -229,6 +250,13 @@ defmodule Pidge.Run do
       end
 
     "pidge run --from-step #{from_id}#{human_input}"
+  end
+
+  def push_next_command_to_clipboard(next_command, _opts) do
+    case System.cmd("bash", ["-c","echo \"#{next_command}\" | pbcopy"]) do
+      {"", 0} -> {:next}
+      {:error, reason} -> {:error, "Error pushing next command to clipboard: #{inspect(reason)}"}
+    end
   end
 
   def compile_template(prompt, opts) do
@@ -289,7 +317,7 @@ defmodule Pidge.Run do
         if match == nil do
           {:error, "Step not found: #{opts[:jump_to_step]}"}
         else
-          {:ok} ++ match
+          {:ok, nil} ++ match
         end
 
       opts[:from_step] ->
@@ -300,13 +328,13 @@ defmodule Pidge.Run do
         else
           {_, done_index} = match
           if Enum.at(pidge_ast, done_index + 1) == nil do
-            {:last, nil}
+            {:last, nil, nil, nil}
           else
-            {:ok, Enum.at(pidge_ast, done_index + 1), done_index + 1}
+            {:ok, Enum.at(pidge_ast, done_index), Enum.at(pidge_ast, done_index + 1), done_index + 1}
           end
         end
 
-      true -> {:ok, pidge_ast |> Enum.at(0), 0}
+      true -> {:ok, nil, pidge_ast |> Enum.at(0), 0}
     end
   end
 
