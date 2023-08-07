@@ -285,6 +285,7 @@ defmodule Pidge.Run do
             # So increment to the next loop item and call it again
             bug(opts, 2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
             opts = Keyword.put(opts, :foreach_loop_index, foreach_loop_index + 1)
+            opts = leave_closure(opts)
             foreach(pidge_ast, foreach_step, ast_index, opts)
 
           # Otherwise, return whatever it returns as our step return
@@ -373,23 +374,30 @@ defmodule Pidge.Run do
         _ -> ""
       end
 
-    "pidge run --from-step \"#{get_from_step(from_id, opts)}#{human_input}\""
+    # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input}"
+    "pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input}"
   end
 
   def get_from_step(from_id, opts) do
     closure_trail_list =
-      opts[:closure_states]
-      |> Enum.map(fn %{__foreach_loop_index: foreach_loop_index, __foreach_seq: seq} ->
-        "foreach-#{seq}[#{foreach_loop_index}]"
-      end)
+      cond do
+        opts[:closure_states] == nil -> []
+        true ->
+          opts[:closure_states]
+          |> Enum.map(fn %{__foreach_loop_index: foreach_loop_index, __foreach_seq: seq} ->
+            "foreach-#{seq}[#{foreach_loop_index}]"
+          end)
+      end
+
     case closure_trail_list do
       [] -> "#{from_id}"
       _ -> "#{Enum.join(closure_trail_list, ".")}.#{from_id}"
     end
   end
 
-  def push_next_command_to_clipboard(next_command, _opts) do
-    case System.cmd("bash", ["-c","echo \"#{next_command}\" | pbcopy"]) do
+  def push_next_command_to_clipboard(next_command, opts) do
+    bug(opts, 2, [label: "push_next_command_to_clipboard", next_command: next_command])
+    case System.cmd("bash", ["-c","echo '#{next_command}' | pbcopy"]) do
       {"", 0} -> {:next}
       {:error, reason} -> {:error, "Error pushing next command to clipboard: #{inspect(reason)}"}
     end
@@ -401,10 +409,14 @@ defmodule Pidge.Run do
 
     # merge each of the closures into the state
     state =
-      Enum.reduce(opts[:closure_states], state, fn closure_state, state ->
-        bug(opts, 2, [label: "compile_template", closure_state: closure_state])
-        Map.merge(state, closure_state)
-      end)
+      cond do
+        opts[:closure_states] == nil -> state
+        true ->
+          Enum.reduce(opts[:closure_states], state, fn closure_state, state ->
+            bug(opts, 2, [label: "compile_template", closure_state: closure_state])
+            Map.merge(state, closure_state)
+          end)
+      end
 
     keys_to_add_from_opts = [:input, :human_input, :optional_human_input]
     # Add the keys if they are present

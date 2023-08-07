@@ -4,11 +4,11 @@ My name is Whip, by the way. I am a critic, a cynic, but also kind of an expert 
 {{ input }}
 
 
-{% if human %}
+{% if human_input %}
 
   But my most important advice, is this.  Please pay close attention:
 
-  {{ human }}
+  {{ human_input }}
 
 {% endif %}
 

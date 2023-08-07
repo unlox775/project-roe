@@ -1,0 +1,13 @@
+Thank you for that summary on this character. I think it is coming along pretty well. Can I give some feedback and suggest some improvements? Please know that I'm trying to help you evolve and improve the character of {{ character.name }} here to help them be more relatable to audiences and to fit better into the themes of your stories and the role that they plays.
+
+{{ input }}
+
+{% if human_input %}
+
+  But my most important advice, is this.  Please pay close attention:
+
+  {{ human_input }}
+
+{% endif %}
+
+Can you take that list of suggestions and give me another revision of the character of {{ character.name }}? Just like before, you're doing a great job. I appreciate you letting me help like this.

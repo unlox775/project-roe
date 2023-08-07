@@ -1,0 +1,20 @@
+[If any locales have this character as having experience]
+Ok, for background only, here are some locales relevant to this character:
+
+    [locale(s) JSON]
+
+[/if]
+
+Now, here is the JSON I want you to modify.  As a refresh, this is the character object for {{ character.name }} so far:
+
+{{ character }}
+
+Could you add to this more background information based on the detail we've just put together?
+- Add a "full_name" key, now that we have a more full detail
+- Lets add a "timeline" key for events events, as an object, with key (dates, as vague or specific as you like)/values (description of event) like "1991-07-31": "Born, to Lily and James potter in the village of Godrics Hollow" or "early 1993": "finished his last year at primary school".  But only add entries for the stuff you just mentioned in the above character description, not yet events of our story.  We'll add those later.
+- Add a "forces_that_shaped_identity" key, with an array of strings, listing the top 3 to 5 life influences, people, and describing the effect they had, like "Lily Potter dying - she was Harry's mother, who died protecting him from Voldemort, and whose love for him is what saved him from the killing curse.  Harry has a strong desire to live up to her sacrifice and be a good person, and to make her proud of him.", and "Living with the Dursleys - Harry was raised by his aunt and uncle, who were cruel to him, and made him live in a cupboard under the stairs.  And his cousin Dudley was spoiled and bullied him."
+- Add a "personality_traits" key, with an array of strings, listing the top 3 to 5 personality traits, and describing how they affect his behavior, like "brave - Harry is brave, and will stand up to bullies, and will risk his life to save his friends", and "loyal - Harry is loyal to his friends, and will do anything to protect them", and "stubborn - Harry is stubborn, and will not give up, even when the odds are against him, and he is told to give up"
+- Add a "background_characters" key listing people who were influencial in thi character's pasy before out story begins.  Make this an object with tha character's names as keys, and the values being simple string about that character's history, relation to the character, and description of how they influenced the character, like "Dudley Dursley": "Harry's cousin, who bullied him, and made him feel worthless"
+- Add a "physical_measurements_and_traits" object, with "height", "weight", "distinctive_features", "preferred_appearance_and_details_of_how_they_dress" as keys.
+
+Keep in mind, the goal here is not to come up with new things here, just to capture the details of what we just finished making from the discussion above.  We'll add new things later, when we get to them in the story.
