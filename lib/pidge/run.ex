@@ -44,6 +44,7 @@ defmodule Pidge.Run do
       jump_to_step: :string,
       from_step: :string,
       human_input: :string,
+      session: :string,
       verbose: :boolean,
       help: :boolean
       ]
@@ -219,14 +220,29 @@ defmodule Pidge.Run do
   end
 
   def ai_prompt(pidge_ast, %{id: id, method: method, params: %{ prompt: prompt, conversation_id: conv}}, index, opts) do
-    with {:ok, message} <- compile_template(prompt, opts),
-          {:ok} <- push_to_api(conv, message, opts) do
-      next_command = get_next_command_to_run(pidge_ast, index, id, opts)
-      cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following (copied to clipboard):\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
-      push_next_command_to_clipboard(next_command, opts)
-      {:halt, opts ++ [cli_prompt: cli_prompt]}
-    else
-      error -> {:error, "Error in #{method}: #{inspect(error)}"}
+    case opts[:session] do
+      nil ->
+        with {:ok, message} <- compile_template(prompt, opts),
+              {:ok} <- push_to_api(conv, message, opts) do
+          next_command = get_next_command_to_run(pidge_ast, index, id, opts)
+          cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following (copied to clipboard):\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
+          push_next_command_to_clipboard(next_command, opts)
+          {:halt, opts ++ [cli_prompt: cli_prompt]}
+        else
+          error -> {:error, "Error in #{method}: #{inspect(error)}"}
+        end
+
+      _ ->
+        with {:ok, message} <- compile_template(prompt, opts),
+              {:ok, response} <- push_to_api_and_wait_for_response(conv, message, opts) do
+          args = get_next_command_args_to_run(pidge_ast, index, id, opts)
+          cmd = get_next_command_to_run(pidge_ast, index, id, opts)
+          IO.puts "\n\nAuto-running next command: #{cmd} --input RESPONSE-BODY\n\n"
+          run(args ++ ["--session",opts[:session],"--input",response])
+          System.halt(0)
+        else
+          error -> {:error, "Error in #{method}: #{inspect(error)}"}
+        end
     end
   end
 
@@ -365,17 +381,36 @@ defmodule Pidge.Run do
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id, opts) do
+    args = get_next_command_args_to_run(pidge_ast, index, from_id, opts)
+    IO.inspect(args, label: "get_next_command_to_run")
+    full_args = ["pidge", "run"] ++ args
+    IO.inspect(full_args, label: "full_args")
+    full_args
+    |> Enum.map(fn arg -> escape_shell_arg_basic(arg) end)
+    |> Enum.join(" ")
+  end
+
+  # Note, this is quick and dirty, and will go away.  Do not use on inputs you don't trust (from user input)
+  def escape_shell_arg_basic(arg) do
+    cond do
+      String.contains?(arg,"[") -> "\"#{arg}\""
+      String.contains?(arg," ") -> "\"#{arg}\""
+      true -> arg
+    end
+  end
+
+  def get_next_command_args_to_run(pidge_ast, index, from_id, opts) do
      # If the next blocking step has human_input or optional_human_input, add a human-input flag
      human_input =
       case next_blocking_step(pidge_ast, index+1) do
-        {:last} -> ""
-        {:ok, %{params: %{human_input: _}}} -> " --human-input \"your input here\""
-        {:ok, %{params: %{optional_human_input: _}}} -> " --human-input \"-\""
-        _ -> ""
+        {:last} -> []
+        {:ok, %{params: %{human_input: _}}} -> ["--human-input","your input here"]
+        {:ok, %{params: %{optional_human_input: _}}} -> ["--human-input","-"]
+        _ -> []
       end
 
     # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input}"
-    "pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input}"
+    ["--from-step", get_from_step(from_id, opts)] ++ human_input
   end
 
   def get_from_step(from_id, opts) do
@@ -542,35 +577,24 @@ defmodule Pidge.Run do
         {:ok}
       {:error, error} -> {:error, error}
     end
+  end
 
-    # shell_command = "pidge send_to_#{conv}_input"
-    # # Run the shell command from elixir and pipe input to it, like this, but as cleanly as possible as the message can sometimes be large and have special characters:
-    # with(
-    #   # Make /tmp/roe/transmit directory
-    #   {:make_dir, :ok} <- {:make_dir, File.mkdir_p(@transit_tmp_dir)},
-    #   # come up with a random filename
-    #   filename <- Base.encode64(:crypto.strong_rand_bytes(16)),
-    #   # Write the message to that file
-    #   {:write_tmp_file, :ok }<- {:write_tmp_file, File.write("#{@transit_tmp_dir}/#{filename}", message)},
-    #   # Call Systen.cmd, piping the message to the shell command
-    #   bash_args = ["-c","cat #{@transit_tmp_dir}/#{filename} | #{shell_command}"],
-    #   {output, 0} <- System.cmd("bash", bash_args)
-    #   # ,
-    #   # # remove the file
-    #   # :ok <- File.rm("#{@transit_tmp_dir}/#{filename}")
-    # ) do
-    #   bug(opts, 2, [label: "Pushed to API", output: output])
-    #   bug(opts, 3, [label: "Message that was pushed:", message: message])
-    #   bug(opts, 4, [label: "Bash args for the command that was run:", bash_args: bash_args])
-    #   bug(opts, 4, [label: "Temp Filename:", filename: "#{@transit_tmp_dir}/#{filename}"])
-    #   {:ok}
-    # else
-    #   {:make_dir, {:error, reason}} ->
-    #     {:error, "Error making directory: #{inspect(reason)}"}
-    #   {:write_tmp_file, {:error, reason}} ->
-    #     {:error, "Error writing to temp file: #{inspect(reason)}"}
-    #   error ->
-    #     {:error, "Error pushing to API: #{inspect(error)}"}
-    # end
+  def push_to_api_and_wait_for_response(conv,message,opts) do
+    data = %{ "message" => message }
+
+    channel = "session:#{conv}-#{opts[:session]}" |> String.downcase()
+    IO.inspect(channel, label: "Channel")
+
+    case Pidge.WebClient.send_and_wait_for_response(data, channel) do
+      {:ok, response_data} ->
+        IO.inspect(response_data, label: "Response Data")
+        {:ok, response_data}
+      {:error, reason} ->
+        IO.inspect(reason, label: "Error")
+        {:error, reason}
+      error ->
+        IO.inspect(error, label: "Unknown error")
+        {:error, "Unknown error"}
+    end
   end
 end

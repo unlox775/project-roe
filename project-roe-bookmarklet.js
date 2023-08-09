@@ -1,8 +1,12 @@
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+
 (function() {
     // Open a generic prompt to let the user choose either "whip" or "bard"
-    let promptResult = prompt('Choose a character', 'whip');
-    promptResult = promptResult.toLowerCase();
-    promptResultTitle = promptResult.charAt(0).toUpperCase() + promptResult.slice(1);
+    let channelID = prompt('Provide a channel session ID (e.g. whip-AAA)', 'whip-AAA');
+    channelID = channelID.toLowerCase();
+    let visualChannelTitle = channelID.charAt(0).toUpperCase() + channelID.slice(1);
+    // Cut off the - to the end
+    visualChannelTitle = visualChannelTitle.split('-')[0];
 
     //  If previous loaded, remove it
     const idsToRemove = ['roe-send-button', 'roe-label'];
@@ -16,7 +20,7 @@
     // Create a new label element
     const label = document.createElement('div');
     label.id = 'roe-label';
-    label.innerText = promptResultTitle;
+    label.innerText = visualChannelTitle;
     label.style.position = 'fixed';
     label.style.right = '10px';
     label.style.top = '50%';
@@ -30,7 +34,7 @@
     // Append the label to the body
     document.body.appendChild(label);
 
-    const channel = promptResult+":lobby";
+    const channel = "session:"+channelID;
     const url = 'wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket';
 
     // Declare a global variable to hold the WebSocket connection
@@ -56,6 +60,9 @@
         };
         console.log('Sending join message', joinMessage);
         window.roeSocket.send(JSON.stringify(joinMessage));
+
+        // Start the heartbeat after the socket opens.
+        setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
     };
 
     const onmessage = function (event) {
@@ -64,15 +71,15 @@
         // Now you can handle incoming messages
         let incomingMessage = JSON.parse(event.data);
         if (incomingMessage.event === 'phx_reply' && incomingMessage.payload.status === 'ok') {
-            console.log('Joined successfully to the channel');
-        } else if (incomingMessage.event === 'message:new') {
+            console.log('Got OK response phx_reply');
+        } else if (incomingMessage.event === 'new_script_to_chat') {
             console.log('New Message: ' + incomingMessage.payload.body);
 
             // Find the textarea by its ID
             let textarea = document.getElementById('prompt-textarea');
 
             // Set the textarea value
-            textarea.value = incomingMessage.payload.body;
+            textarea.value = incomingMessage.payload.body.message;
 
             // Send a change event to the textarea
             let event = new Event('input', { 'bubbles': true, 'cancelable': true });
@@ -113,6 +120,32 @@
             // Append the button to the body
             document.body.appendChild(sendButton);            
         }
+    };
+
+    const sendWebSocketMessage = function(message) {
+        // Send the message payload
+        const uniqueRef = Math.floor(Math.random() * 1000000000);
+        let sendMessage = {
+            topic: channel,
+            event: 'send_chat_to_script',
+            payload: {
+                body: message
+            },
+            ref: uniqueRef // This can be a unique reference value for each message
+        };
+        console.log('Sending message', sendMessage);
+        window.roeSocket.send(JSON.stringify(sendMessage));
+    };
+
+    const sendHeartbeat = () => {
+        const heartbeatMessage = {
+            topic: "phoenix",
+            event: "heartbeat",
+            payload: {},
+            ref: null
+        };
+        console.log('Sending heartbeat');
+        window.roeSocket.send(JSON.stringify(heartbeatMessage));
     };
 
     const onerror = function (error) {
@@ -174,6 +207,7 @@
         setTimeout(() => {getClipboardContent().then(content => {
             if (content !== null) {
                 console.log('Read from clipboard:', content);
+                sendWebSocketMessage(content);
             }
         }) }, 1000)
     }

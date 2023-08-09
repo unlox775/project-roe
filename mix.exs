@@ -25,6 +25,7 @@ defmodule Pidge.MixProject do
       {:poison, "~> 5.0"},
       {:solid, "~> 0.7.0"},
       {:jason, "~> 1.4.1"},
+      {:websockex, "~> 0.4.3"},
     ]
   end
 
