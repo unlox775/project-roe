@@ -79,6 +79,7 @@ defmodule Pidge.Run do
 
         opts = opts ++ [verbosity: verbosity]
         bug(opts,2,[verbosity_level: verbosity])
+        bug(opts,3,[opts: opts])
 
         opts
 
@@ -234,11 +235,21 @@ defmodule Pidge.Run do
 
       _ ->
         with {:ok, message} <- compile_template(prompt, opts),
-              {:ok, response} <- push_to_api_and_wait_for_response(conv, message, opts) do
-          args = get_next_command_args_to_run(pidge_ast, index, id, opts)
+              {:ok, response} <- push_to_api_and_wait_for_response(pidge_ast, index, id, conv, message, opts) do
+          {args,human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, id, opts)
+          input = response["body"]
+          IO.inspect(human_input_mode, label: "human_input_mode")
+          IO.inspect(response, label: "response")
+          human_input_args =
+            case {human_input_mode,response} do
+              {:optional, %{"human_input" => human_input}} -> ["--human-input", human_input]
+              _ -> human_input_args
+            end
+          IO.inspect(human_input_args, label: "human_input_args")
+
           cmd = get_next_command_to_run(pidge_ast, index, id, opts)
           IO.puts "\n\nAuto-running next command: #{cmd} --input RESPONSE-BODY\n\n"
-          run(args ++ ["--session",opts[:session],"--input",response])
+          run(["-vvv"] ++ args ++ human_input_args ++ ["--session",opts[:session],"--input",input])
           System.halt(0)
         else
           error -> {:error, "Error in #{method}: #{inspect(error)}"}
@@ -381,9 +392,9 @@ defmodule Pidge.Run do
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id, opts) do
-    args = get_next_command_args_to_run(pidge_ast, index, from_id, opts)
+    {args,human_input_args,_human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id, opts)
     IO.inspect(args, label: "get_next_command_to_run")
-    full_args = ["pidge", "run"] ++ args
+    full_args = ["pidge", "run"] ++ args ++ human_input_args
     IO.inspect(full_args, label: "full_args")
     full_args
     |> Enum.map(fn arg -> escape_shell_arg_basic(arg) end)
@@ -401,16 +412,16 @@ defmodule Pidge.Run do
 
   def get_next_command_args_to_run(pidge_ast, index, from_id, opts) do
      # If the next blocking step has human_input or optional_human_input, add a human-input flag
-     human_input =
+     {human_input_args, human_input_mode} =
       case next_blocking_step(pidge_ast, index+1) do
-        {:last} -> []
-        {:ok, %{params: %{human_input: _}}} -> ["--human-input","your input here"]
-        {:ok, %{params: %{optional_human_input: _}}} -> ["--human-input","-"]
-        _ -> []
+        {:last} -> {[],:none}
+        {:ok, %{params: %{human_input: _}}} -> {["--human-input","your input here"],:required}
+        {:ok, %{params: %{optional_human_input: _}}} -> {["--human-input","-"],:optional}
+        _ -> {[],:none}
       end
 
-    # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input}"
-    ["--from-step", get_from_step(from_id, opts)] ++ human_input
+    # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id, opts)}\"#{human_input_args}"
+    {["--from-step", get_from_step(from_id, opts)], human_input_args, human_input_mode}
   end
 
   def get_from_step(from_id, opts) do
@@ -579,8 +590,10 @@ defmodule Pidge.Run do
     end
   end
 
-  def push_to_api_and_wait_for_response(conv,message,opts) do
-    data = %{ "message" => message }
+  def push_to_api_and_wait_for_response(pidge_ast, index, from_id,conv,message,opts) do
+    {_args,_human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id, opts)
+
+    data = %{ "message" => message, "human_input_mode" => to_string(human_input_mode) }
 
     channel = "session:#{conv}-#{opts[:session]}" |> String.downcase()
     IO.inspect(channel, label: "Channel")

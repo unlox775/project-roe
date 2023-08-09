@@ -1,20 +1,33 @@
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-
 (function() {
-    // Open a generic prompt to let the user choose either "whip" or "bard"
-    let channelID = prompt('Provide a channel session ID (e.g. whip-AAA)', 'whip-AAA');
-    channelID = channelID.toLowerCase();
+    const heartbeat_interval = 30000; // 30 seconds
+
+    let channelID = null;
+    if ( window.roeChannelID ) {
+        channelID = window.roeChannelID;
+    } else {
+        // Open a generic prompt to let the user choose either "whip" or "bard"
+        channelID = prompt('Provide a channel session ID (e.g. whip-AAA)', 'whip-AAA');
+        channelID = channelID.toLowerCase();
+        window.roeChannelID = channelID;
+    }
     let visualChannelTitle = channelID.charAt(0).toUpperCase() + channelID.slice(1);
     // Cut off the - to the end
     visualChannelTitle = visualChannelTitle.split('-')[0];
 
     //  If previous loaded, remove it
-    const idsToRemove = ['roe-send-button', 'roe-label'];
+    const idsToRemove = ['roe-label'];
     idsToRemove.forEach(id => {
         if (document.getElementById(id)) {
             document.getElementById(id).remove();
         }
     });
+    const removeSubmitButtons = () => {
+        let elements = document.getElementsByClassName('roe-send-button');
+        while(elements.length > 0){
+            elements[0].parentNode.removeChild(elements[0]);
+        }
+    };
+    removeSubmitButtons();
 
     // Add watermark to the page
     // Create a new label element
@@ -62,7 +75,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
         window.roeSocket.send(JSON.stringify(joinMessage));
 
         // Start the heartbeat after the socket opens.
-        setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+        setInterval(sendHeartbeat, heartbeat_interval);
     };
 
     const onmessage = function (event) {
@@ -73,7 +86,8 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
         if (incomingMessage.event === 'phx_reply' && incomingMessage.payload.status === 'ok') {
             console.log('Got OK response phx_reply');
         } else if (incomingMessage.event === 'new_script_to_chat') {
-            console.log('New Message: ' + incomingMessage.payload.body);
+            console.log('New Message: ', incomingMessage.payload.body);
+            removeSubmitButtons();
 
             // Find the textarea by its ID
             let textarea = document.getElementById('prompt-textarea');
@@ -101,40 +115,55 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
                 }
             }, 500)
 
-            // Show a button at the bottom of the page, just below the textarea, labelled "Send Message and Continue"
-            const sendButton = document.createElement('button');
-            sendButton.id = 'roe-send-button';
-            sendButton.innerText = 'Send Message and Continue';
-            sendButton.style.position = 'fixed';
-            sendButton.style.bottom = '10px';
-            sendButton.style.left = '50%';
-            sendButton.style.transform = 'translateX(-50%)';
-            sendButton.style.fontFamily = 'Trebuchet MS, sans-serif';
-            sendButton.style.backgroundColor = '#bbb';
-            sendButton.style.padding = '5px 20px';
-            sendButton.style.color = '#333';
-    
-            // On click, call the sendLastMessage function
-            sendButton.addEventListener('click', sendLastMessage);
-
-            // Append the button to the body
-            document.body.appendChild(sendButton);            
+            //  If human input is optional, then show 2 buttons, to let them "Submit with Your Own Input" or "Send Message and Continue"
+            if (incomingMessage.payload.body.human_input_mode === "optional") {
+                addSubmitButton('Submit with Your Own Input','35%', sendLastMessageWithHumanInput);
+                addSubmitButton('Send Message and Continue','65%', sendLastMessage);
+            } else {
+                addSubmitButton('Send Message and Continue','50%', sendLastMessage);
+            }
         }
     };
 
-    const sendWebSocketMessage = function(message) {
-        // Send the message payload
-        const uniqueRef = Math.floor(Math.random() * 1000000000);
-        let sendMessage = {
-            topic: channel,
-            event: 'send_chat_to_script',
-            payload: {
-                body: message
-            },
-            ref: uniqueRef // This can be a unique reference value for each message
-        };
-        console.log('Sending message', sendMessage);
-        window.roeSocket.send(JSON.stringify(sendMessage));
+    const addSubmitButton = function(label,left, callback) {
+        // Show a button at the bottom of the page, just below the textarea, labelled "Send Message and Continue"
+        const sendButton = document.createElement('button');
+        sendButton.innerText = label;
+        sendButton.style.position = 'fixed';
+        sendButton.style.bottom = '10px';
+        sendButton.style.left = left;
+        sendButton.style.transform = 'translateX(-50%)';
+        sendButton.style.fontFamily = 'Trebuchet MS, sans-serif';
+        sendButton.style.backgroundColor = '#bbb';
+        sendButton.style.padding = '5px 20px';
+        sendButton.style.color = '#333';
+        sendButton.className = 'roe-send-button';
+
+        // On click, call the sendLastMessage function
+        sendButton.addEventListener('click', callback);
+
+        // Append the button to the body
+        document.body.appendChild(sendButton);            
+    };     
+
+    const sendWebSocketMessage = function(payload) {
+        try {
+            // Send the message payload
+            const uniqueRef = Math.floor(Math.random() * 1000000000);
+            let sendMessage = {
+                topic: channel,
+                event: 'send_chat_to_script',
+                payload: payload,
+                ref: uniqueRef // This can be a unique reference value for each message
+            };
+            console.log('Sending message', sendMessage);
+            window.roeSocket.send(JSON.stringify(sendMessage));            
+        } catch (error) {
+            // Try again in a half second
+            setTimeout(() => {
+                sendWebSocketMessage(payload)
+            },500);
+        }
     };
 
     const sendHeartbeat = () => {
@@ -190,9 +219,12 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
         }
     }
 
-    // Trigger the "Copy Last Message" routine, and then send the payload back to the server
-    const sendLastMessage = () => {
-        document.getElementById('roe-send-button').remove();
+    const readLastMessage = (callback) => {
+        // Remove all elements of the CSS class "roe-send-button"
+        let elements = document.getElementsByClassName('roe-send-button');
+        while(elements.length > 0){
+            elements[0].parentNode.removeChild(elements[0]);
+        }
 
         let event = new KeyboardEvent('keydown', {
             metaKey : true,
@@ -207,10 +239,32 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
         setTimeout(() => {getClipboardContent().then(content => {
             if (content !== null) {
                 console.log('Read from clipboard:', content);
-                sendWebSocketMessage(content);
+                callback(content);
             }
         }) }, 1000)
-    }
+    };
 
+    // Trigger the "Copy Last Message" routine, and then send the payload back to the server
+    const sendLastMessage = () => {
+        removeSubmitButtons();
+        readLastMessage((content) => {
+            sendWebSocketMessage({
+                body: content
+            });
+        });
+    }
+    const sendLastMessageWithHumanInput = () => {
+        removeSubmitButtons();
+        readLastMessage((content) => {
+            // Prompt the user to paste in a multi-line message
+            let human_input = prompt("Please paste in your multi-line message here:");
+
+            sendWebSocketMessage({
+                body: content,
+                human_input: human_input
+            });
+        });
+    }
+        
     return connect_to_websocket();
 })();
