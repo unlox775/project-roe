@@ -1,6 +1,6 @@
 For a quick refresh, this is the characters and themes from earlier:
 
-{{ plot_full }}
+{{ json.plot_full }}
 
 [If any locales have this character as having experience]
 And here are some locales relevant to this character:

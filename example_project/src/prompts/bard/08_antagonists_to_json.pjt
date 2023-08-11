@@ -1,6 +1,6 @@
 Here is our JSON we created earlier:
 
-{{ plot_simple }}
+{{ json.plot_simple }}
 
 Ok, add to this original JSON file. Add a new key called "antagonist_allies" with the details you just mentioned.  This should also have two entries for motivation, their primary motivation as a charactar "primary_motivation", and detail on their motivation to support the primary antagonist "support_motivation".
 

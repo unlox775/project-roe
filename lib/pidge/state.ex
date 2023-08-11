@@ -18,6 +18,16 @@ defmodule Pidge.State do
 
     # store the object in the state
     state = Map.put(state, to_string(object_name), object)
+
+    # If the object is a map, store the JSON equivalet as well under json.object_name
+    state =
+    case is_map(object) do
+      true ->
+        existing_json = if Map.has_key?(state, "json"), do: Map.get(state, "json"), else: %{}
+        Map.put(state, :json, Map.put(existing_json,object_name, Jason.encode!(object, pretty: true)))
+      false -> state
+    end
+
     save_state(state, session_id)
 
     object
@@ -28,7 +38,18 @@ defmodule Pidge.State do
     state = get_current_state(session_id)
 
     # store the object in the state
-    state = Map.put(state, to_string(object_name), Map.merge(Map.get(state, to_string(object_name)), object))
+    merged_object = Map.merge(Map.get(state, to_string(object_name)), object)
+    state = Map.put(state, to_string(object_name), merged_object)
+
+    # If the object is a map, store the JSON equivalet as well under json.object_name
+    state =
+      case is_map(object) do
+        true ->
+          existing_json = if Map.has_key?(state, "json"), do: Map.get(state, "json"), else: %{}
+          Map.put(state, :json, Map.put(existing_json,object_name, Jason.encode!(merged_object, pretty: true)))
+        false -> state
+      end
+
     save_state(state, session_id)
 
     object

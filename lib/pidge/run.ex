@@ -249,12 +249,24 @@ defmodule Pidge.Run do
 
           cmd = get_next_command_to_run(pidge_ast, index, id, opts)
           IO.puts "\n\nAuto-running next command: #{cmd} --input RESPONSE-BODY\n\n"
-          run(["-vvv"] ++ args ++ human_input_args ++ ["--session",opts[:session],"--input",input])
+          next_command = args ++ human_input_args ++ ["--session",opts[:session], "--input", input]
+
+          # Save the next command to run in release/next_command.txt
+          File.write!("release/next_command.exs", inspect(next_command, depth: :infinity))
+
+          run(next_command)
           System.halt(0)
         else
           error -> {:error, "Error in #{method}: #{inspect(error)}"}
         end
     end
+  end
+
+  def continue(_args) do
+    # Read in an eval the next command to run
+    next_command_txt = File.read!("release/next_command.exs")
+    {[_|_] = next_command, []} = Code.eval_string(next_command_txt)
+    run(next_command)
   end
 
   # behaves the same as ai_prompt, but @input_required_methods is true

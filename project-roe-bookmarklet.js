@@ -28,6 +28,9 @@
         }
     };
     removeSubmitButtons();
+    if (window.roeLastButtonSet) {
+        resetButtons();
+    }
 
     // Add watermark to the page
     // Create a new label element
@@ -117,11 +120,21 @@
 
             //  If human input is optional, then show 2 buttons, to let them "Submit with Your Own Input" or "Send Message and Continue"
             if (incomingMessage.payload.body.human_input_mode === "optional") {
-                addSubmitButton('Submit with Your Own Input','35%', sendLastMessageWithHumanInput);
-                addSubmitButton('Send Message and Continue','65%', sendLastMessage);
+                window.roeLastButtonSet = "send_optional_human_input";
             } else {
-                addSubmitButton('Send Message and Continue','50%', sendLastMessage);
+                window.roeLastButtonSet = "send_message_and_continue";
             }
+            resetButtons();
+        }
+    };
+
+    const resetButtons = function () {
+        console.log(`Resetting buttons to ${window.roeLastButtonSet}`);
+        if (window.roeLastButtonSet === "send_optional_human_input") {
+            addSubmitButton('Submit with Your Own Input','35%', sendLastMessageWithHumanInput);
+            addSubmitButton('Send Message and Continue','65%', sendLastMessage);
+        } else if (window.roeLastButtonSet === "send_message_and_continue") {
+            addSubmitButton('Send Message and Continue','50%', sendLastMessage);
         }
     };
 
@@ -252,6 +265,9 @@
                 body: content
             });
         });
+        setTimeout(() => {
+            addSubmitButton('Reset','90%', resetButtons)
+        }, 1500)
     }
     const sendLastMessageWithHumanInput = () => {
         removeSubmitButtons();
@@ -264,6 +280,9 @@
                 human_input: human_input
             });
         });
+        setTimeout(() => {
+            addSubmitButton('Reset','90%', resetButtons)
+        }, 1500)
     }
         
     return connect_to_websocket();
