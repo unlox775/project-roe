@@ -262,18 +262,25 @@ defmodule Pidge.Run do
   # behaves the same as ai_prompt, but has post_process
   def ai_object_extract(pidge_ast, step, index, opts), do: ai_prompt(pidge_ast, step, index, opts)
 
+  def get_state_session_id(opts) do
+    case opts[:session] do
+      nil -> "state"
+      _ -> "state-" <> opts[:session]
+    end
+  end
+
   def store_object(_, %{params: %{ object_name: object_name }}, _, opts) do
-    State.store_object(opts[:input], object_name)
+    State.store_object(opts[:input], object_name, get_state_session_id(opts))
     {:next, opts}
   end
 
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _, opts) do
-    State.clone_object(clone_from_object_name, object_name)
+    State.clone_object(clone_from_object_name, object_name, get_state_session_id(opts))
     {:next, opts}
   end
 
   def merge_into_object(_, %{params: %{ object_name: object_name }}, _, opts) do
-    State.merge_into_object(opts[:input], object_name)
+    State.merge_into_object(opts[:input], object_name, get_state_session_id(opts))
     {:next, opts}
   end
 
@@ -336,7 +343,7 @@ defmodule Pidge.Run do
     iter_variable_name: iter_variable_name,
     }}) do
     # Get the list to iterate on
-    state = State.get_current_state()
+    state = State.get_current_state(get_state_session_id(opts))
     list = state |> get_nested_key(loop_on_variable_name)
     bug(opts, 2, label: "foreach looped list", list: list)
     bug(opts, 5, label: "foreach loop", state: state)
@@ -451,7 +458,7 @@ defmodule Pidge.Run do
 
   def compile_template(prompt, opts) do
     state =
-      State.get_current_state()
+      State.get_current_state(get_state_session_id(opts))
 
     # merge each of the closures into the state
     state =
