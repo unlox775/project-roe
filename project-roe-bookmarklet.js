@@ -1,67 +1,73 @@
 (function() {
     const heartbeat_interval = 30000; // 30 seconds
+    const url = 'wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket';
 
     let channelID = null;
-    if ( window.roeChannelID ) {
-        channelID = window.roeChannelID;
-    } else {
-        // Open a generic prompt to let the user choose either "whip" or "bard"
-        channelID = prompt('Provide a channel session ID (e.g. whip-AAA)', 'whip-AAA');
-        channelID = channelID.toLowerCase();
-        window.roeChannelID = channelID;
-    }
-    let visualChannelTitle = channelID.charAt(0).toUpperCase() + channelID.slice(1);
-    // Cut off the - to the end
-    visualChannelTitle = visualChannelTitle.split('-')[0];
-
-    //  If previous loaded, remove it
-    const idsToRemove = ['roe-label'];
-    idsToRemove.forEach(id => {
-        if (document.getElementById(id)) {
-            document.getElementById(id).remove();
+    let channel = null;
+    const init = () => {
+        if ( window.roeChannelID ) {
+            channelID = window.roeChannelID;
+        } else {
+            // Open a generic prompt to let the user choose either "whip" or "bard"
+            channelID = prompt('Provide a channel session ID (e.g. whip-AAA)', 'whip-AAA');
+            channelID = channelID.toLowerCase();
+            window.roeChannelID = channelID;
         }
-    });
+        let visualChannelTitle = channelID.charAt(0).toUpperCase() + channelID.slice(1);
+        // Cut off the - to the end
+        visualChannelTitle = visualChannelTitle.split('-')[0];
+
+        //  If previous loaded, remove it
+        const idsToRemove = ['roe-label'];
+        idsToRemove.forEach(id => {
+            if (document.getElementById(id)) {
+                document.getElementById(id).remove();
+            }
+        });
+        removeSubmitButtons();
+        if (window.roeLastButtonSet) {
+            resetButtons();
+        }
+
+        // Add watermark to the page
+        // Create a new label element
+        const label = document.createElement('div');
+        label.id = 'roe-label';
+        label.innerText = visualChannelTitle;
+        label.style.position = 'fixed';
+        label.style.right = '10px';
+        label.style.top = '50%';
+        label.style.transform = 'translateY(-50%) rotate(-90deg)';
+        label.style.fontFamily = 'Trebuchet MS, sans-serif';
+        label.style.fontStyle = 'italic';
+        label.style.fontSize = '24pt';
+        label.style.color = 'rgba(0, 0, 0, 0.5)';
+        label.style.pointerEvents = 'none';  // This makes the element non-blocking for clicks
+
+        // Append the label to the body
+        document.body.appendChild(label);
+
+        channel = "session:"+channelID;
+
+        // Declare a global variable to hold the WebSocket connection
+        window.roeSocket = window.roeSocket || null;
+
+        // Check if a connection already exists and close it
+        if (window.roeSocket !== null) {
+            console.log('Closing existing connection');
+            window.roeSocket.close(3001, 'Switching to new connection');
+            window.roeSocket = null;
+        }
+
+        return connect_to_websocket()
+    };
+
     const removeSubmitButtons = () => {
         let elements = document.getElementsByClassName('roe-send-button');
         while(elements.length > 0){
             elements[0].parentNode.removeChild(elements[0]);
         }
     };
-    removeSubmitButtons();
-    if (window.roeLastButtonSet) {
-        resetButtons();
-    }
-
-    // Add watermark to the page
-    // Create a new label element
-    const label = document.createElement('div');
-    label.id = 'roe-label';
-    label.innerText = visualChannelTitle;
-    label.style.position = 'fixed';
-    label.style.right = '10px';
-    label.style.top = '50%';
-    label.style.transform = 'translateY(-50%) rotate(-90deg)';
-    label.style.fontFamily = 'Trebuchet MS, sans-serif';
-    label.style.fontStyle = 'italic';
-    label.style.fontSize = '24pt';
-    label.style.color = 'rgba(0, 0, 0, 0.5)';
-    label.style.pointerEvents = 'none';  // This makes the element non-blocking for clicks
-
-    // Append the label to the body
-    document.body.appendChild(label);
-
-    const channel = "session:"+channelID;
-    const url = 'wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket';
-
-    // Declare a global variable to hold the WebSocket connection
-    window.roeSocket = window.roeSocket || null;
-
-    // Check if a connection already exists and close it
-    if (window.roeSocket !== null) {
-        console.log('Closing existing connection');
-        window.roeSocket.close(3001, 'Switching to new connection');
-        window.roeSocket = null;
-    }
 
     const onOpen = function (event) {
         console.log('Connection opened');
@@ -129,6 +135,7 @@
     };
 
     const resetButtons = function () {
+        removeSubmitButtons();
         console.log(`Resetting buttons to ${window.roeLastButtonSet}`);
         if (window.roeLastButtonSet === "send_optional_human_input") {
             addSubmitButton('Submit with Your Own Input','35%', sendLastMessageWithHumanInput);
@@ -267,7 +274,7 @@
         });
         setTimeout(() => {
             addSubmitButton('Reset','90%', resetButtons)
-        }, 1500)
+        }, 200)
     }
     const sendLastMessageWithHumanInput = () => {
         removeSubmitButtons();
@@ -284,6 +291,6 @@
             addSubmitButton('Reset','90%', resetButtons)
         }, 1500)
     }
-        
-    return connect_to_websocket();
+       
+    return init();
 })();

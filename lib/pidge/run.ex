@@ -252,7 +252,7 @@ defmodule Pidge.Run do
           next_command = args ++ human_input_args ++ ["--session",opts[:session], "--input", input]
 
           # Save the next command to run in release/next_command.txt
-          File.write!("release/next_command.exs", inspect(next_command, depth: :infinity))
+          File.write!("release/next_command.exs", inspect(next_command, limit: :infinity))
 
           run(next_command)
           System.halt(0)
@@ -619,7 +619,7 @@ defmodule Pidge.Run do
 
     case Pidge.WebClient.send_and_wait_for_response(data, channel, opts) do
       {:ok, response_data} ->
-        IO.puts("Response recieved: #{inspect(response_data, depth: :infinity) |> String.length()} bytes")
+        IO.puts("Response recieved: #{inspect(response_data, limit: :infinity) |> String.length()} bytes")
         bug(opts, 2, [response_data: response_data, label: "Response Data"])
         {:ok, response_data}
       {:error, reason} ->
