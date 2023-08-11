@@ -246,15 +246,20 @@
             elements[0].parentNode.removeChild(elements[0]);
         }
 
-        let event = new KeyboardEvent('keydown', {
+        let event = {
             metaKey : true,
             shiftKey : true,
             bubbles : true,
             cancelable : true,
             currentTarget : document,
             key : "c",
-        })
-        document.dispatchEvent(event);
+        }
+        // OS is windows, then send Ctrl-Shift-C
+        if (navigator.platform.indexOf('Win') > -1) {
+            delete event.metaKey;
+            event.ctrlKey = true;
+        }
+        document.dispatchEvent(new KeyboardEvent('keydown', event));
 
         setTimeout(() => {getClipboardContent().then(content => {
             if (content !== null) {
