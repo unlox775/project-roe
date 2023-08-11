@@ -29,8 +29,8 @@ defmodule Pidge.Run do
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
         System.halt(1)
-      {:last} ->
-        IO.puts("Excution complete.")
+      {:last, _} ->
+        IO.puts("Pidge Execution complete.")
         System.halt(0)
       error ->
         IO.puts("Unknown error: #{inspect(error)}")
@@ -238,14 +238,14 @@ defmodule Pidge.Run do
               {:ok, response} <- push_to_api_and_wait_for_response(pidge_ast, index, id, conv, message, opts) do
           {args,human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, id, opts)
           input = response["body"]
-          IO.inspect(human_input_mode, label: "human_input_mode")
-          IO.inspect(response, label: "response")
+          bug(opts, 3, [human_input_mode: human_input_mode])
+          bug(opts, 3, [response: response])
           human_input_args =
             case {human_input_mode,response} do
               {:optional, %{"human_input" => human_input}} -> ["--human-input", human_input]
               _ -> human_input_args
             end
-          IO.inspect(human_input_args, label: "human_input_args")
+          bug(opts, 3, [human_input_args: human_input_args])
 
           cmd = get_next_command_to_run(pidge_ast, index, id, opts)
           IO.puts "\n\nAuto-running next command: #{cmd} --input RESPONSE-BODY\n\n"
@@ -412,9 +412,9 @@ defmodule Pidge.Run do
 
   def get_next_command_to_run(pidge_ast, index, from_id, opts) do
     {args,human_input_args,_human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id, opts)
-    IO.inspect(args, label: "get_next_command_to_run")
+    bug(opts,4,[get_next_command_to_run: args])
     full_args = ["pidge", "run"] ++ args ++ human_input_args
-    IO.inspect(full_args, label: "full_args")
+    bug(opts,4,[full_args: full_args])
     full_args
     |> Enum.map(fn arg -> escape_shell_arg_basic(arg) end)
     |> Enum.join(" ")
@@ -615,17 +615,18 @@ defmodule Pidge.Run do
     data = %{ "message" => message, "human_input_mode" => to_string(human_input_mode) }
 
     channel = "session:#{conv}-#{opts[:session]}" |> String.downcase()
-    IO.inspect(channel, label: "Channel")
+    IO.puts("Pushing message to web browser on channel: #{channel}")
 
-    case Pidge.WebClient.send_and_wait_for_response(data, channel) do
+    case Pidge.WebClient.send_and_wait_for_response(data, channel, opts) do
       {:ok, response_data} ->
-        IO.inspect(response_data, label: "Response Data")
+        IO.puts("Response recieved: #{inspect(response_data, depth: :infinity) |> String.length()} bytes")
+        bug(opts, 2, [response_data: response_data, label: "Response Data"])
         {:ok, response_data}
       {:error, reason} ->
-        IO.inspect(reason, label: "Error")
+        bug(opts, 2, [reason: reason, label: "Error"])
         {:error, reason}
       error ->
-        IO.inspect(error, label: "Unknown error")
+        bug(opts, 2, [error: error, label: "Unknown error"])
         {:error, "Unknown error"}
     end
   end
