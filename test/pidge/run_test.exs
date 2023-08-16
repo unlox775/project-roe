@@ -44,13 +44,13 @@ end
       session_id = get_session_id(__ENV__.line)
       State.wipe("state-#{session_id}")
 
-      opts = [
+      opts = %{
         from_step: @step_name,
-        verbosity: -5,
+        verbosity: 5,
         input: @json_input,
         session: session_id
-      ]
-      assert {:last, _} = Run.run(opts, @simple_ast)
+      }
+      assert {:last} = Run.run(opts, @simple_ast)
 
       state = State.get_current_state("state-#{session_id}")
 

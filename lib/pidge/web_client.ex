@@ -4,15 +4,15 @@ defmodule Pidge.WebClient do
 
   alias Pidge.WebClient.Socket
 
-  def send_and_wait_for_response(message, channel, opts) do
+  def send_and_wait_for_response(message, channel) do
     ref = 10000 + :rand.uniform(100000 - 1)
-    {:ok, socket_pid} = send_message(message, channel, ref, opts)
+    {:ok, socket_pid} = send_message(message, channel, ref)
 
     case wait_for_response(ref, socket_pid, @max_wait_time) do
       {:ok, response} ->
         # kill the socket
         Process.exit(socket_pid, :kill)
-        bug(opts, 5,[response: response, label: "AFTERKILL - CASE: We got a response, so we're done."])
+        bug(5,[response: response, label: "AFTERKILL - CASE: We got a response, so we're done."])
         {:ok, response}
       {:error, :timeout} ->
         # kill the socket
@@ -21,12 +21,11 @@ defmodule Pidge.WebClient do
     end
   end
 
-  defp send_message(message, channel, ref, opts) do
+  defp send_message(message, channel, ref) do
     state = %{
       message: message,
       ref: ref,
-      channel: channel,
-      opts: opts
+      channel: channel
     }
     Socket.send_and_watch_for_response(state)
   end
@@ -51,5 +50,5 @@ defmodule Pidge.WebClient do
     end
   end
 
-  defp bug(opts, level, stuff_to_debug), do: Pidge.Run.bug(opts, level, stuff_to_debug)
+  defp bug(level, stuff_to_debug), do: Pidge.Run.bug(level, stuff_to_debug)
 end
