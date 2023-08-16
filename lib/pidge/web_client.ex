@@ -1,5 +1,5 @@
 defmodule Pidge.WebClient do
-  @max_wait_time 300_000 # 5 minutes
+  @max_wait_time 3_000_000 # 50 minutes
   @recheck_every 200  # fifth of a second
 
   alias Pidge.WebClient.Socket

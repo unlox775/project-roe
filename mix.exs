@@ -26,6 +26,7 @@ defmodule Pidge.MixProject do
       {:solid, "~> 0.7.0"},
       {:jason, "~> 1.4.1"},
       {:websockex, "~> 0.4.3"},
+      {:mix_test_watch, "~> 1.0", only: :dev}
     ]
   end
 

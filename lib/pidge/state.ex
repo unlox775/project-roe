@@ -1,7 +1,11 @@
 defmodule Pidge.State do
+  def session_id_to_filepath(session_id) do
+    "release/#{session_id}.json"
+  end
+
   def get_current_state(session_id) do
-    # Load state from release/#{session_id}.json
-    case File.read("release/#{session_id}.json") do
+    # Load state from file
+    case File.read(session_id_to_filepath(session_id)) do
       {:ok, json} ->
         case Jason.decode(json) do
           {:ok, state} -> state
@@ -66,8 +70,12 @@ defmodule Pidge.State do
     Map.get(state, to_string(object_name))
   end
 
+  def wipe(session_id) do
+    save_state(%{}, session_id)
+  end
+
   defp save_state(state, session_id) do
-    # save the state as JSON in release/state.json
-    File.write!("release/#{session_id}.json", Jason.encode!(state, pretty: true))
+    # save the state as JSON
+    File.write!(session_id_to_filepath(session_id), Jason.encode!(state, pretty: true))
   end
 end

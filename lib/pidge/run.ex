@@ -14,16 +14,10 @@ defmodule Pidge.Run do
   def run(args) do
     opts = parse_opts(args)
 
-    with(
-      # Read the step from the pjc file
+    with 1 <- 1,
       {:ok, pidge_ast} <- read_ast(opts),
-      # Find the step to start at
-      {:ok, opts, last_step, step, index} <- find_step(pidge_ast, opts),
-      # Run post process on last step if needed
-      {:ok, opts} <- post_process(last_step, opts),
-      # Execute the step
-      {:halt, _} <- execute(pidge_ast, step, index, opts)
-    ) do
+      {:halt, _} = run(opts, pidge_ast)
+    do
       System.halt(0)
     else
       {:error, reason} ->
@@ -35,6 +29,17 @@ defmodule Pidge.Run do
       error ->
         IO.puts("Unknown error: #{inspect(error)}")
         System.halt(1)
+    end
+  end
+
+  def run(opts, pidge_ast) do
+    with 1 <- 1,
+      # Find the step to start at
+      {:ok, opts, last_step, step, index} <- find_step(pidge_ast, opts),
+      # Run post process on last step if needed
+      {:ok, opts} <- post_process(last_step, opts)
+    do
+      execute(pidge_ast, step, index, opts)
     end
   end
 
