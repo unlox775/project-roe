@@ -4,6 +4,7 @@ defmodule Pidge.Run do
   """
 
   alias Pidge.State
+  alias Pidge.Runtime.RunState
   alias Pidge.Run.AIObjectExtract
 
   # @transit_tmp_dir "/tmp/roe/transit"
@@ -33,6 +34,8 @@ defmodule Pidge.Run do
   end
 
   def run(opts, pidge_ast) do
+    RunState.start_link(opts)
+
     with 1 <- 1,
       # Find the step to start at
       {:ok, opts, last_step, step, index} <- find_step(pidge_ast, opts),
@@ -533,9 +536,11 @@ defmodule Pidge.Run do
     end
   end
 
-  def find_step(pidge_ast, opts) do
+  def find_step(pidge_ast, _opts) do
+    opts = RunState.get_opts()
+
     # Remove the opts[:sub_from_step] key if it exists
-    opts = Keyword.delete(opts, :sub_from_step)
+    opts = opts |> Keyword.delete(:sub_from_step) |> RunState.set_opts()
 
     # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
@@ -561,11 +566,12 @@ defmodule Pidge.Run do
               opts
               |> Keyword.put(:sub_from_step, sub_from_step)
               |> Keyword.put(:foreach_loop_index, String.to_integer(foreach_loop_index))
+              |> RunState.set_opts()
             if match == nil do
               {:error, "Foreach Step not found: #{opts[:from_step]}"}
             else
               {step, index} = match
-              {:ok, Keyword.put(opts, :sub_from_step, sub_from_step), nil, step, index}
+              {:ok, opts |> Keyword.put(:sub_from_step, sub_from_step) |> RunState.set_opts(), nil, step, index}
             end
 
           _ ->
