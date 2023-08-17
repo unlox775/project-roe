@@ -1,6 +1,10 @@
 defmodule Pidge.State do
   def session_id_to_filepath(session_id) do
-    "release/#{session_id}.json"
+    case session_id do
+      nil -> "release/state.json"
+      "" -> "release/state.json"
+      _ -> "release/#{session_id}.json"
+    end
   end
 
   def get_current_state(session_id) do

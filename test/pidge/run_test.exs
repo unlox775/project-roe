@@ -42,7 +42,7 @@ end
   describe "run/2" do
     test "run test" do
       session_id = get_session_id(__ENV__.line)
-      State.wipe("state-#{session_id}")
+      State.wipe(session_id)
 
       opts = %{
         from_step: @step_name,
@@ -52,7 +52,7 @@ end
       }
       assert {:last} = Run.run(opts, @simple_ast)
 
-      state = State.get_current_state("state-#{session_id}")
+      state = State.get_current_state(session_id)
 
       assert [%{
         "hobby" => "pizza eating",
