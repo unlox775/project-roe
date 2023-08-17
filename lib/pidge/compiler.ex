@@ -10,15 +10,8 @@ defmodule Pidge.Compiler do
     with(
       {:mkdir, :ok} <- {:mkdir, File.mkdir_p("release")},
       {:read, {:ok, code}} <- {:read, File.read("src/main.pj")},
-      {:ok, ast } <- Code.string_to_quoted(@pre_code_code_include <> code <> @post_code_code_include),
-      # Drop the module definition
-      {:defmodule, [line: 1], [{:__aliases__, [line: 1], [:Pidge]}, [do: {:__block__, [], ast } ] ] } <- ast,
-      # Drop the first 1 item(s0 in the ast, which are the operator
-      ast <- Enum.slice(ast, 1, length(ast)),
-      # Drop the function pidhe wrapper
-      [{:def, _, [{:pidge, _, nil}, [do: ast ] ] } ] <- ast
+      {:ok, pidge_ast} <- compile_source(code)
     ) do
-      pidge_ast = parse_ast(ast)
       validate_ast(pidge_ast)
       prompt_files = compile_prompts(pidge_ast)
 
@@ -31,7 +24,24 @@ defmodule Pidge.Compiler do
         File.write!(new_file_path, File.read!(filename))
       end)
 
-      File.write!("release/main.pjc", inspect(pidge_ast))
+      File.write!("release/main.pjc", inspect(pidge_ast, limit: :infinity, pretty: true))
+    else
+      error -> raise "Failed to compile: #{inspect(error, limit: :infinity, pretty: true)}"
+    end
+  end
+
+  def compile_source(code) do
+    with(
+      {:ok, ast } <- Code.string_to_quoted(@pre_code_code_include <> code <> @post_code_code_include),
+      # Drop the module definition
+      {:defmodule, [line: 1], [{:__aliases__, [line: 1], [:Pidge]}, [do: {:__block__, [], ast } ] ] } <- ast,
+      # Drop the first 1 item(s0 in the ast, which are the operator
+      ast <- Enum.slice(ast, 1, length(ast)),
+      # Drop the function pidge wrapper
+      [{:def, _, [{:pidge, _, nil}, [do: ast ] ] } ] <- ast,
+      [_|_] = pidge_ast <- parse_ast(ast)
+    ) do
+      {:ok, pidge_ast}
     else
       error -> raise "Failed to compile: #{inspect(error, limit: :infinity, pretty: true)}"
     end

@@ -2,7 +2,7 @@
 
 build:
 	@mkdir -p release
-	mix escript.build
+	MIX_ENV=prod mix escript.build
 	mv -f pidge release/pidge
 
 bookmarklet_compile:
