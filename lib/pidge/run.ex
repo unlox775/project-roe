@@ -17,7 +17,7 @@ defmodule Pidge.Run do
 
     with 1 <- 1,
       {:ok, pidge_ast} <- read_ast(),
-      {:halt, _} = run(opts, pidge_ast)
+      {:halt} = run(opts, pidge_ast)
     do
       System.halt(0)
     else
@@ -139,12 +139,10 @@ defmodule Pidge.Run do
   def execute(pidge_ast, step, index) do
     # start with the step at index, and keep going until we get a :halt
     case run_step(pidge_ast, step, index) do
-      {:halt} ->
-        case RunState.get_opt(:cli_prompt) do
-          nil -> nil
-          cli_prompt -> IO.puts("Runtime Finshed.\n\n#{cli_prompt}")
-        end
+      {:halt, cli_prompt} ->
+        IO.puts("Runtime Finshed.\n\n#{cli_prompt}")
         {:halt}
+      {:halt} -> {:halt}
       {:error, reason} ->
         {:error, reason}
       {:next} ->
@@ -172,12 +170,9 @@ defmodule Pidge.Run do
     do
       {:next}
     else
-      {:halt} ->
-        {:halt}
-      {:error, reason} ->
-        {:error, reason}
-      error ->
-        {:error, "Error running step: #{inspect(error)}"}
+      {:halt} -> {:halt}
+      {:error, reason} -> {:error, reason}
+      error -> {:error, "Error running step: #{inspect(error)}"}
     end
   end
 
@@ -223,8 +218,7 @@ defmodule Pidge.Run do
           next_command = get_next_command_to_run(pidge_ast, index, id)
           cli_prompt = "Your Message has been pushed to the #{conv} conversation.  Please go to that window and submit now.\n\nAfer submitting, run the following (copied to clipboard):\n\n    #{next_command}\n\nThen it will pause for input.  Paste in the response from the AI at that point.  When you are done, type enter, and then hit ctrl-d to continue."
           push_next_command_to_clipboard(next_command)
-          RunState.set_opt(:cli_prompt, cli_prompt)
-          {:halt}
+          {:halt, cli_prompt}
         else
           error -> {:error, "Error in #{method}: #{inspect(error)}"}
         end
@@ -296,14 +290,14 @@ defmodule Pidge.Run do
     # If we just finished the commands for a loop, this func will be re-called, passing an opt on what the next loop index should be
     #   This can also be set by a prior find_step
     foreach_loop_index =
-      case RunState.get_opt(:foreach_loop_index) do
+      case RunState.get_meta_key(:foreach_loop_index) do
         nil -> 0
         x -> x
       end
 
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
     {sub_step,sub_ast_index} =
-      case RunState.get_opt(:sub_from_step) do
+      case RunState.get_meta_key(:sub_from_step) do
         nil -> {Enum.at(sub_pidge_ast,0), 0}
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
@@ -326,7 +320,7 @@ defmodule Pidge.Run do
           {:last} ->
             # So increment to the next loop item and call it again
             bug(2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
-            RunState.set_opt(:foreach_loop_index, foreach_loop_index + 1)
+            RunState.set_meta_key(:foreach_loop_index, foreach_loop_index + 1)
             leave_closure()
             foreach(pidge_ast, foreach_step, ast_index)
 
@@ -394,16 +388,16 @@ defmodule Pidge.Run do
   end
 
   def enter_closure(closure_state) do
-    case RunState.get_opt(:closure_states) do
-      nil -> RunState.set_opt(:closure_states, [closure_state])
-      closure_states -> RunState.set_opt(:closure_states, closure_states ++ [closure_state])
+    case RunState.get_meta_key(:closure_states) do
+      nil -> RunState.set_meta_key(:closure_states, [closure_state])
+      closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure_state])
     end
   end
 
   def leave_closure() do
     # drop the last closure
-    closure_states = RunState.get_opt(:closure_states)
-    RunState.set_opt(:closure_states, Enum.drop(closure_states, -1))
+    closure_states = RunState.get_meta_key(:closure_states)
+    RunState.set_meta_key(:closure_states, Enum.drop(closure_states, -1))
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id) do
@@ -441,7 +435,7 @@ defmodule Pidge.Run do
 
   def get_from_step(from_id) do
     closure_trail_list =
-      case RunState.get_opt(:closure_states) do
+      case RunState.get_meta_key(:closure_states) do
         nil -> []
         closure_states ->
           Enum.map(closure_states, fn %{__foreach_loop_index: foreach_loop_index, __foreach_seq: seq} ->
@@ -469,7 +463,7 @@ defmodule Pidge.Run do
 
     # merge each of the closures into the state
     state =
-      case RunState.get_opt(:closure_states) do
+      case RunState.get_meta_key(:closure_states) do
         nil -> state
         closure_states ->
           Enum.reduce(closure_states, state, fn closure_state, state ->
@@ -525,7 +519,7 @@ defmodule Pidge.Run do
   def find_step(pidge_ast) do
 
     # Remove the :sub_from_step opt key if it exists
-    RunState.delete_opt(:sub_from_step)
+    RunState.delete_meta_key(:sub_from_step)
 
     # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
@@ -547,13 +541,13 @@ defmodule Pidge.Run do
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the foreach, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the loop
             match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
-            RunState.set_opt(:sub_from_step, sub_from_step)
-            RunState.set_opt(:foreach_loop_index, String.to_integer(foreach_loop_index))
+            RunState.set_meta_key(:sub_from_step, sub_from_step)
+            RunState.set_meta_key(:foreach_loop_index, String.to_integer(foreach_loop_index))
             if match == nil do
               {:error, "Foreach Step not found: #{RunState.get_opt(:from_step)}"}
             else
               {step, index} = match
-              RunState.set_opt(:sub_from_step, sub_from_step)
+              RunState.set_meta_key(:sub_from_step, sub_from_step)
               {:ok, nil, step, index}
             end
 

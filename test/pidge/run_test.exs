@@ -46,7 +46,7 @@ end
 
       opts = %{
         from_step: @step_name,
-        verbosity: 5,
+        verbosity: -5,
         input: @json_input,
         session: session_id
       }
