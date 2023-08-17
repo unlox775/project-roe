@@ -1,9 +1,18 @@
 defmodule Pidge.State do
+  import Pidge.Util
+
   def session_id_to_filepath(session_id) do
     case session_id do
       nil -> "release/state.json"
       "" -> "release/state.json"
       _ -> "release/#{session_id}.json"
+    end
+  end
+  def session_id_to_filepath(session_id, suffix) when is_atom(suffix) do
+    case session_id do
+      nil -> "release/state-#{suffix}.json"
+      "" -> "release/state-#{suffix}.json"
+      _ -> "release/#{session_id}-#{suffix}.json"
     end
   end
 
@@ -25,16 +34,16 @@ defmodule Pidge.State do
     state = get_current_state(session_id)
 
     # store the object in the state
-    state = Map.put(state, to_string(object_name), object)
+    state = deep_set(state, object_name, object)
 
-    # If the object is a map, store the JSON equivalet as well under json.object_name
+    # If the object is a map, store the JSON equivalent as well under json.object_name
     state =
-    case is_map(object) do
-      true ->
-        existing_json = if Map.has_key?(state, "json"), do: Map.get(state, "json"), else: %{}
-        Map.put(state, :json, Map.put(existing_json,object_name, Jason.encode!(object, pretty: true)))
-      false -> state
-    end
+      case is_map(object) && (! is_list(object_name) || Enum.count(object_name) == 1) do
+        true ->
+          existing_json = if Map.has_key?(state, "json"), do: Map.get(state, "json"), else: %{}
+          Map.put(state, :json, Map.put(existing_json,object_name, Jason.encode!(object, pretty: true)))
+        false -> state
+      end
 
     save_state(state, session_id)
 
@@ -46,12 +55,12 @@ defmodule Pidge.State do
     state = get_current_state(session_id)
 
     # store the object in the state
-    merged_object = Map.merge(Map.get(state, to_string(object_name)), object)
-    state = Map.put(state, to_string(object_name), merged_object)
+    merged_object = Map.merge(deep_get(state, object_name), object)
+    state = deep_set(state, object_name, merged_object)
 
     # If the object is a map, store the JSON equivalet as well under json.object_name
     state =
-      case is_map(object) do
+      case is_map(object) && (! is_list(object_name) || Enum.count(object_name) == 1) do
         true ->
           existing_json = if Map.has_key?(state, "json"), do: Map.get(state, "json"), else: %{}
           Map.put(state, :json, Map.put(existing_json,object_name, Jason.encode!(merged_object, pretty: true)))
@@ -68,10 +77,11 @@ defmodule Pidge.State do
     state = get_current_state(session_id)
 
     # clone the object in the state
-    state = Map.put(state, to_string(object_name), Map.get(state, to_string(clone_from_object_name)))
+    clone_from = deep_get(state, clone_from_object_name)
+    state = deep_set(state, object_name, clone_from)
     save_state(state, session_id)
 
-    Map.get(state, to_string(object_name))
+    deep_get(state, to_string(object_name))
   end
 
   def wipe(session_id) do
@@ -81,5 +91,13 @@ defmodule Pidge.State do
   defp save_state(state, session_id) do
     # save the state as JSON
     File.write!(session_id_to_filepath(session_id), Jason.encode!(state, pretty: true))
+  end
+
+  # quick functions for getting string-based nested key lists
+  def deep_get(state, key_list) do
+    get_nested_key(state, make_list_of_strings(key_list))
+  end
+  def deep_set(state, key_list, value) do
+    set_nested_key(state, make_list_of_strings(key_list), value)
   end
 end

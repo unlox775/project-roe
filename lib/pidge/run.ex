@@ -3,6 +3,8 @@ defmodule Pidge.Run do
   A module to execute steps in a Pidge script.
   """
 
+  import Pidge.Util
+
   alias Pidge.State
   alias Pidge.Runtime.RunState
   alias Pidge.Run.AIObjectExtract
@@ -359,36 +361,22 @@ defmodule Pidge.Run do
     # Otherwise, set the instance variable to the Nth item in the list
     else
       closure_state =
-        %{
-          __foreach_loop_index: foreach_loop_index,
-          __foreach_seq: seq,
-        }
+        %{}
         |> Map.put(instance_variable_name, Enum.at(list, foreach_loop_index))
         |> Map.put(iter_variable_name, foreach_loop_index)
-      {:ok, enter_closure(closure_state) }
+      {:ok, enter_closure(closure_state, {seq, foreach_loop_index}) }
     end
   end
 
-  def get_nested_key(state, keys_list) do
-    Enum.reduce(keys_list, state, fn key, acc ->
-      # silently handle non-existant keys as nil
-      if is_map(acc) && Map.has_key?(acc, key) do
-        Map.get(acc, key)
-      else
-        nil
-      end
-    end)
-  end
-
-  def enter_closure(closure_state) do
+  def enter_closure(closure_state, {closure_code_line, loop_iteration}) do
+    closure = {closure_code_line, closure_state, loop_iteration}
     case RunState.get_meta_key(:closure_states) do
-      nil -> RunState.set_meta_key(:closure_states, [closure_state])
-      closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure_state])
+      nil -> RunState.set_meta_key(:closure_states, [closure])
+      closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure])
     end
   end
 
   def leave_closure() do
-    # drop the last closure
     closure_states = RunState.get_meta_key(:closure_states)
     RunState.set_meta_key(:closure_states, Enum.drop(closure_states, -1))
   end
@@ -431,7 +419,7 @@ defmodule Pidge.Run do
       case RunState.get_meta_key(:closure_states) do
         nil -> []
         closure_states ->
-          Enum.map(closure_states, fn %{__foreach_loop_index: foreach_loop_index, __foreach_seq: seq} ->
+          Enum.map(closure_states, fn {seq, _, foreach_loop_index} ->
             "foreach-#{seq}[#{foreach_loop_index}]"
           end)
       end
@@ -459,7 +447,7 @@ defmodule Pidge.Run do
       case RunState.get_meta_key(:closure_states) do
         nil -> state
         closure_states ->
-          Enum.reduce(closure_states, state, fn closure_state, state ->
+          Enum.reduce(closure_states, state, fn {_, closure_state, _}, state ->
             bug(2, [label: "compile_template", closure_state: closure_state])
             Map.merge(state, closure_state)
           end)

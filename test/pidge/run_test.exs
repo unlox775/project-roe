@@ -11,7 +11,7 @@ defmodule Pidge.RunTest do
     %{id: @step_name, seq: "00003", params: %{format: "json", prompt: @step_name, conversation_id: "elmer", schema: {:character, [line: 28], nil}}, method: :ai_object_extract},
     %{id: nil, seq: "0004", params: %{object_name: "test"}, method: :store_object},
     %{id: nil, seq: "0005", method: :foreach, params: %{instance_variable_name: "bot", iter_variable_name: "i", loop_on_variable_name: ["test","bots"], sub_pidge_ast: [
-      %{id: nil, seq: "00001", params: %{object_name: "bots_copy"}, method: :store_object},
+      %{id: nil, seq: "00001", params: %{object_name: ["bots_copy","nested"]}, method: :store_object},
       %{id: nil, seq: "00002", params: %{object_name: "bot_clone", clone_from_object_name: "bot"}, method: :clone_object}
     ]}}
   ]
@@ -57,7 +57,7 @@ end
       assert [%{
         "hobby" => "pizza eating",
         "name" => "elmer"
-      }| _] = state["bots_copy"]["bots"]
+      }| _] = state["bots_copy"]["nested"]["bots"]
     end
   end
 end
