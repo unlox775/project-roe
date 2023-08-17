@@ -58,6 +58,7 @@ defmodule Pidge.Compiler do
     end)
   end
   def parse_ast({:|>, a, b}), do: parse_ast({:__block__, a, b})
+  def parse_ast({:=, a, _} = line), do: parse_ast({:__block__, a, [line]})
 
   # constant defining what opts are allowed for which functions
   @allowed_opts %{
@@ -111,11 +112,19 @@ defmodule Pidge.Compiler do
       ) do
     assign_name =
       case name do
+        {:., _, _} -> name |> collapse_dottree([]) |> Enum.map(&(to_string(&1)))
         [""<>_|_] -> name
         x when is_atom(x) -> to_string(name)
       end
 
     case value do
+      {{:., _, _}, _, _} ->
+        [%{
+          id: nil,
+          method: :clone_object,
+          params: %{clone_from_object_name: value |> collapse_dottree([]) |> Enum.map(&(to_string(&1))), object_name: assign_name}
+        }]
+
       # If it is a pipe, we evaluate the whole chain, and then store the result
       {:|>, _, _} = sub_struct ->
         parse_ast(sub_struct) ++ [%{
