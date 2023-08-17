@@ -112,7 +112,7 @@ defmodule Pidge.Compiler do
       ) do
     assign_name =
       case name do
-        {:., _, _} -> name |> collapse_dottree([]) |> Enum.map(&(to_string(&1)))
+        {:., _, _} -> name |> collapse_dottree([])
         [""<>_|_] -> name
         x when is_atom(x) -> to_string(name)
       end
@@ -122,7 +122,7 @@ defmodule Pidge.Compiler do
         [%{
           id: nil,
           method: :clone_object,
-          params: %{clone_from_object_name: value |> collapse_dottree([]) |> Enum.map(&(to_string(&1))), object_name: assign_name}
+          params: %{clone_from_object_name: value |> collapse_dottree([]), object_name: assign_name}
         }]
 
       # If it is a pipe, we evaluate the whole chain, and then store the result
@@ -171,7 +171,7 @@ defmodule Pidge.Compiler do
       id: nil,
       method: :foreach,
       params: %{
-        loop_on_variable_name: loop_on_variable_path |> collapse_dottree([]) |> Enum.map(&(to_string(&1))),
+        loop_on_variable_name: loop_on_variable_path |> collapse_dottree([]),
         instance_variable_name: to_string(instance_variable_name),
         iter_variable_name: to_string(iter_variable_name),
         sub_pidge_ast: sub_pidge_ast
@@ -219,13 +219,19 @@ defmodule Pidge.Compiler do
   end
 
   def collapse_dottree({:., _, [a, key]}, acc) when is_atom(key) do
-    collapse_dottree(a, acc) ++ [key]
+    collapse_dottree(a, acc) ++ [to_string(key)]
   end
   def collapse_dottree({{:., _, _} = dot, _, []}, acc) do
     collapse_dottree(dot, acc)
   end
+  def collapse_dottree({{:., _line, [Access, :get]}, _line, [dot,{var_key, _line, nil}]}, acc) do
+    collapse_dottree(dot, [{var_key}] ++ acc)
+  end
+  def collapse_dottree({{:., _line, [Access, :get]}, _line, [dot,""<>_ = string_key]}, acc) do
+    collapse_dottree(dot, [string_key] ++ acc)
+  end
   def collapse_dottree({key, _,nil}, acc) when is_atom(key) do
-    [key] ++ acc
+    [to_string(key)] ++ acc
   end
 
   def parse_opts(function_name, params, opts) do

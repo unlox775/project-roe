@@ -6,8 +6,9 @@ defmodule Pidge.CompilerTest do
   Context.add_conversation(:wilbur)
   test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
   foreach(test.bots, fn {bot,i} ->
-    bots_copy.nested = test.bots
-    bot_clone = bot
+    bots_copy.nested = test["bots"]
+    bot_clone = test.bots[i]
+    bot_clone_too = bot
   end)
   """
 
@@ -19,7 +20,8 @@ defmodule Pidge.CompilerTest do
       %{id: nil, seq: "00004", params: %{object_name: "test"}, method: :store_object},
       %{id: nil, seq: "00005", method: :foreach, params: %{instance_variable_name: "bot", iter_variable_name: "i", loop_on_variable_name: ["test", "bots"], sub_pidge_ast: [
         %{id: nil, seq: "00001", params: %{object_name: ["bots_copy", "nested"], clone_from_object_name: ["test", "bots"]}, method: :clone_object},
-        %{id: nil, seq: "00002", params: %{object_name: "bot_clone", clone_from_object_name: "bot"}, method: :clone_object}
+        %{id: nil, seq: "00002", params: %{object_name: "bot_clone", clone_from_object_name: ["test", {:i}, "bots"]}, method: :clone_object},
+        %{id: nil, seq: "00003", params: %{object_name: "bot_clone_too", clone_from_object_name: "bot"}, method: :clone_object}
       ]}}
     ]
 
