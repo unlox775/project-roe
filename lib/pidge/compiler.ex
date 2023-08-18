@@ -224,10 +224,20 @@ defmodule Pidge.Compiler do
   def collapse_dottree({{:., _, _} = dot, _, []}, acc) do
     collapse_dottree(dot, acc)
   end
-  def collapse_dottree({{:., _line, [Access, :get]}, _line, [dot,{var_key, _line, nil}]}, acc) do
-    collapse_dottree(dot, [{var_key}] ++ acc)
+  def collapse_dottree({
+      {:., _line1, [Access, :get]},
+      _line2,
+      [
+        dot,
+        {var_key, _line3, _}
+      ]
+      }, acc) do
+    case var_key do
+      atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc)
+      _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
+    end
   end
-  def collapse_dottree({{:., _line, [Access, :get]}, _line, [dot,""<>_ = string_key]}, acc) do
+  def collapse_dottree({{:., _line1, [Access, :get]}, _line2, [dot,""<>_ = string_key]}, acc) do
     collapse_dottree(dot, [string_key] ++ acc)
   end
   def collapse_dottree({key, _,nil}, acc) when is_atom(key) do
