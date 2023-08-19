@@ -7,6 +7,7 @@ defmodule Pidge do
         Pidge.Compiler.compile([])
         Pidge.Run.run(rest_args)
       ["continue" | rest_args] -> Pidge.Run.continue(rest_args)
+      ["new" | [project_name]] -> Pidge.Project.new_project(project_name)
       _ -> IO.puts("Unknown command")
     end
   end
