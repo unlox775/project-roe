@@ -58,13 +58,13 @@ defmodule Pidge.Compiler do
     end)
   end
   def parse_ast({:|>, a, b}), do: parse_ast({:__block__, a, b})
-  def parse_ast({:=, a, _} = line), do: parse_ast({:__block__, a, [line]})
+  def parse_ast({_, a, _} = line), do: parse_ast({:__block__, a, [line]})
 
   # constant defining what opts are allowed for which functions
   @allowed_opts %{
     ai_prompt: [:human_input],
     ai_pipethru: [:optional_human_input, :loopback_allowed_to],
-    ai_object_extract: [:schema, :partial]
+    ai_object_extract: [:schema, :partial, :optional_human_input]
   }
 
   def parse_command(
@@ -81,6 +81,23 @@ defmodule Pidge.Compiler do
       id: nil,
       method: :context_create_conversation,
       params: %{ conversation_id: conversation_id}
+    }]
+  end
+
+  def parse_command(
+    {
+      {
+        :.,
+        _,
+        [
+          {_,_,[:Local]},
+          function_name
+        ]
+      }, _, args}) do
+    [%{
+      id: nil,
+      method: :local_function_call,
+      params: %{ function_name: function_name, args: args }
     }]
   end
 
@@ -103,7 +120,7 @@ defmodule Pidge.Compiler do
     parse_command({:=, a, [{pidge_access_chain, b, nil},c]})
   end
   def parse_command(
-    {:=, _,
+    {:=, _line,
       [
         {name, _, _},
         value
@@ -118,6 +135,12 @@ defmodule Pidge.Compiler do
       end
 
     case value do
+      {{:., _line, [{:__aliases__, _, [:Local]}, _]}, _, _} ->
+        parse_command(value) ++ [%{
+          id: nil,
+          method: :store_object,
+          params: %{object_name: assign_name}
+        }]
       {{:., _, _}, _, _} ->
         [%{
           id: nil,
@@ -146,6 +169,13 @@ defmodule Pidge.Compiler do
           method: :store_object,
           params: %{object_name: assign_name}
         }]
+      simple ->
+        [%{
+          id: nil,
+          method: :store_simple_value,
+          params: %{object_name: assign_name, value: simple}
+        }]
+      # error -> raise "PIDGE: Invalid assignment value on #{inspect(line)}: #{inspect(error)}"
     end
   end
 
@@ -162,8 +192,14 @@ defmodule Pidge.Compiler do
     end)
   end
 
-  def parse_command({:foreach, _, args}) do
-    [{loop_on_variable_path, _, []}, {:fn, _, [{:->, _, [[{{instance_variable_name, _, nil}, {iter_variable_name, _, nil}}], sub_ast]}]}] = args
+  def parse_command({:foreach, line, args}) do
+    {loop_on_variable_path, instance_variable_name, iter_variable_name, sub_ast} =
+      case args do
+        [{loop_on_variable_path, _, _}, {:fn, _, [{:->, _, [[{{instance_variable_name, _, nil}, {iter_variable_name, _, nil}}], sub_ast]}]}] ->
+          {loop_on_variable_path, instance_variable_name, iter_variable_name, sub_ast}
+
+        error -> raise "PIDGE: Invalid foreach on #{inspect(line)}: #{inspect(error)}"
+      end
 
     sub_pidge_ast = parse_ast(sub_ast)
 
@@ -175,6 +211,55 @@ defmodule Pidge.Compiler do
         instance_variable_name: to_string(instance_variable_name),
         iter_variable_name: to_string(iter_variable_name),
         sub_pidge_ast: sub_pidge_ast
+      }
+    }]
+  end
+
+  def parse_command({:if, _, [{_, _, _} = expression, [do: sub_ast]]}) do
+    sub_pidge_ast = parse_ast(sub_ast)
+
+    [%{
+      id: nil,
+      method: :foreach,
+      params: %{
+        expression: compile_expression(expression),
+        sub_pidge_ast: sub_pidge_ast
+      }
+    }]
+  end
+
+  def parse_command({:fly, _, [sub_pidge_filename]}) when is_atom(sub_pidge_filename) do
+    [%{
+      id: nil,
+      method: :fly,
+      params: %{
+        sub_pidge_filename: sub_pidge_filename
+      }
+    }]
+  end
+
+  def parse_command({:case, case_line, [{expression, _, []}, [do: case_asts]]}) do
+    cases =
+      Enum.map(case_asts, fn case_option ->
+        case case_option do
+          {:->, _line, [[case_value], sub_ast]} ->
+            sub_pidge_ast = parse_ast(sub_ast)
+
+            %{
+              case_expression: case_value,
+              sub_pidge_ast: sub_pidge_ast
+            }
+           {_, line, _} -> raise "PIDGE: Invalid case option on #{inspect(line)}: #{inspect(case_option)}"
+           _ -> raise "PIDGE: Really Invalid case option on #{inspect(case_line)}: #{inspect(case_option)}"
+          end
+      end)
+
+    [%{
+      id: nil,
+      method: :foreach,
+      params: %{
+        expression: compile_expression(expression),
+        cases: cases
       }
     }]
   end
@@ -205,7 +290,7 @@ defmodule Pidge.Compiler do
             conversation_id: to_string(conversation_id),
             prompt: to_string(prompt),
             format: to_string(format)
-          }, opts)
+          }, opts, line)
         }]
       {_, [conversation_id, prompt]} ->
         [%{
@@ -220,13 +305,15 @@ defmodule Pidge.Compiler do
           params: parse_opts(function_name, %{
             conversation_id: to_string(conversation_id),
             prompt: to_string(prompt)
-          }, opts)
+          }, opts, line)
         }]
 
       _ ->
         raise "PIDGE: Invalid function call: #{function_name}(#{args |> Enum.join(", ")})"
     end
   end
+
+  def compile_expression(expr), do: expr
 
   def collapse_dottree({:., _, [a, key]}, acc) when is_atom(key) do
     collapse_dottree(a, acc) ++ [to_string(key)]
@@ -253,12 +340,15 @@ defmodule Pidge.Compiler do
   def collapse_dottree({key, _,nil}, acc) when is_atom(key) do
     [to_string(key)] ++ acc
   end
+  def collapse_dottree(key, acc) when is_atom(key) do
+    [to_string(key)] ++ acc
+  end
 
-  def parse_opts(function_name, params, opts) do
+  def parse_opts(function_name, params, opts, line) do
     opts = Map.new(opts)
     # if there are any disallowed opts (not in list for this function of @allowed_opts), raise a compile error
     if Map.keys(opts) |> Enum.any?(&!Enum.member?(@allowed_opts[function_name], &1)) do
-      raise "PIDGE: Invalid option(s) for #{function_name}: #{opts |> Map.keys |> Enum.join(", ")}"
+      raise "PIDGE: Invalid option(s) for #{function_name} on #{inspect(line)}: #{opts |> Map.keys |> Enum.join(", ")}"
     end
     # merge opts map into params (only if in @allowed_opts)
     Map.merge(params, opts |> Map.take(@allowed_opts[function_name]))
