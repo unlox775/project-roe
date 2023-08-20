@@ -179,11 +179,21 @@ defmodule Pidge.Compiler do
     }]
   end
 
+  def parse_command({variable_name, _line, nil}) when is_atom(variable_name) do
+    [%{
+      id: nil,
+      method: :pipe_from_variable,
+      params: %{
+        variable: to_string(variable_name)
+      }
+    }]
+  end
+
   # parse function call command where the first value of the tuple is an atom
-  def parse_command({function_name, _, args}) when is_atom(function_name) do
+  def parse_command({function_name, line, args}) when is_atom(function_name) do
     # if function name is not in @allowed_opts, raise a compile error
     if !Map.has_key?(@allowed_opts, function_name) do
-      raise "PIDGE: Invalid function name: #{function_name}"
+      raise "PIDGE: Invalid function name: #{function_name}#{inspect(args)} on #{inspect(line)}"
     end
 
     case {function_name,args} do
