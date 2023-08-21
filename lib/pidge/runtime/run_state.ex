@@ -4,6 +4,7 @@ defmodule Pidge.Runtime.RunState do
   # Client API
 
   def start_link(initial_opts), do: GenServer.start_link(__MODULE__, initial_opts, name: __MODULE__)
+  def stop(pid), do: GenServer.stop(pid, :normal)
 
   # opts
   def set_opts(opts), do: GenServer.call(__MODULE__, {:set_opts, opts})

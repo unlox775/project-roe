@@ -1,6 +1,9 @@
 defmodule Pidge.CompilerTest do
   use ExUnit.Case, async: true
 
+  alias Pidge.Compiler.CompileState
+  alias Pidge.Compiler.PidgeScript
+
   @example_pidge_code """
   Context.add_conversation(:elmer)
   Context.add_conversation(:wilbur)
@@ -27,7 +30,9 @@ defmodule Pidge.CompilerTest do
       ]}}
     ]
 
-    {:ok, result_ast} = Pidge.Compiler.compile_source(@example_pidge_code)
+    {:ok, compilestate_pid} = CompileState.start_link(%{})
+    {:ok, result_ast} = PidgeScript.compile_source(@example_pidge_code)
+    CompileState.stop(compilestate_pid)
 
     assert expected_ast == result_ast
   end

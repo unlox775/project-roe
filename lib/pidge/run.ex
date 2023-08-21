@@ -88,15 +88,18 @@ defmodule Pidge.Run do
   end
 
   def run(opts, pidge_ast) do
-    RunState.start_link(opts)
+    {:ok, runstate_pid} = RunState.start_link(opts)
 
     with 1 <- 1,
       # Find the step to start at
       {:ok, last_step, step, index} <- find_step(pidge_ast),
       # Run post process on last step if needed
-      {:ok} <- post_process(last_step)
+      {:ok} <- post_process(last_step),
+      {:ok} <- execute(pidge_ast, step, index)
     do
-      execute(pidge_ast, step, index)
+      # end the state process
+      RunState.stop(runstate_pid)
+      {:ok}
     end
   end
 
