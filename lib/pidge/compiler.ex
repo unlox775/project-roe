@@ -1,6 +1,7 @@
 defmodule Pidge.Compiler do
 
   alias Pidge.Compiler.PidgeScript
+  alias Pidge.Compiler.LocalFunction
   alias Pidge.Compiler.CompileState
 
   def compile(_args) do
@@ -28,6 +29,8 @@ defmodule Pidge.Compiler do
     case safe_pull_from_queue(queue_key, compiled_map_key) do
       {:queue_empty} -> :ok
       {:ok, script_name} ->
+        CompileState.set_meta_key(:current_scope, [script_name])
+        CompileState.set_scope_key(:prompt_base, "")
         with(
           {:mkdir, :ok} <- {:mkdir, File.mkdir_p("release")},
           {:read, {:ok, code}} <- {:read, File.read("src/#{script_name}.pj")},
@@ -68,24 +71,29 @@ defmodule Pidge.Compiler do
     # Pull the next item from the queue
     case safe_pull_from_queue(queue_key, compiled_map_key) do
       {:queue_empty} -> :ok
-      {:ok, script_name} ->
-        _filename = "src/local_functions/#{script_name}.ex"
+      {:ok, {path, function_name}} ->
+        function_dir =
+          case path do
+            [] -> ""
+            _ -> "/"<> (path |> Enum.map(&(camel_to_snake_case(&1))) |> Enum.join("/"))
+          end
+        filename_stub = "local_functions#{function_dir}/#{function_name}"
+        compiled_filename_stub = "release/#{filename_stub}"
+        File.mkdir_p!(Path.dirname(compiled_filename_stub))
+        cond do
+          File.exists?("src/#{filename_stub}.ex") ->
+            # This runs validation and will raise if anything fails
+            IO.puts("\nCompiling local function: src/#{filename_stub}.ex ...")
+            {:ok, bytecode} = LocalFunction.compile_elixir_function(
+              File.read!("src/#{filename_stub}.ex")
+              )
+            File.write!("#{compiled_filename_stub}.ex.pjf", bytecode)
 
-        compile_prompts(queue_key, compiled_map_key)
+          true -> raise "PIDGE: Local function file not found: #{filename_stub}"
+        end
+
+        compile_local_functions(queue_key, compiled_map_key)
     end
-  end
-
-  def get_all_method_calls(pidge_ast) do
-    pidge_ast
-    |> Enum.map(fn command ->
-      case command do
-        %{params: %{sub_pidge_ast: sub_pidge_ast}} ->
-          get_all_method_calls(sub_pidge_ast)
-        _ -> [command]
-      end
-    end)
-    # Flatten the list of lists
-    |> List.flatten()
   end
 
   # pull from the queue, and avoid infinite loops, by checking the compiled list
@@ -93,10 +101,30 @@ defmodule Pidge.Compiler do
     case CompileState.shift_meta_key(queue_key) do
       nil -> {:queue_empty}
       item ->
-        case Map.has_key?(CompileState.get_meta_key(compiled_map_key), item) do
+        id =
+          case item do
+            x when is_tuple(x) ->
+              # count the number of items in the tuple
+              item |> Tuple.to_list() |> List.flatten() |> Enum.join("|")
+            x when is_atom(x) -> to_string(item)
+            _ -> item
+          end
+
+        case Map.has_key?(CompileState.get_meta_key(compiled_map_key), id) do
           true -> safe_pull_from_queue(queue_key, compiled_map_key)
-          false -> {:ok, item}
+          false ->
+            CompileState.set_meta_key(compiled_map_key, Map.put(CompileState.get_meta_key(compiled_map_key), id, true))
+            {:ok, item}
         end
     end
+  end
+
+  def camel_to_snake_case(string) do
+    string
+    |> to_string()
+    |> String.replace(~r/([A-Z])/, "_\\1")
+    |> String.replace(~r/^_+/, "")
+    |> String.downcase()
+
   end
 end

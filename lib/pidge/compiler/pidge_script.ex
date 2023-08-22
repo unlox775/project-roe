@@ -55,14 +55,24 @@ defmodule Pidge.Compiler.PidgeScript do
         _,
         [
           {_,_,[:Context]},
-          :add_conversation
+          context_function
         ]
-      }, _, [conversation_id]}) do
-    [%{
-      id: nil,
-      method: :context_create_conversation,
-      params: %{ conversation_id: conversation_id}
-    }]
+      }, _, params}) when is_atom(context_function) do
+    case {context_function, params} do
+      {:add_conversation, [conversation_id]} ->
+        [%{
+          id: nil,
+          method: :context_create_conversation,
+          params: %{ conversation_id: conversation_id}
+        }]
+      {:prompt_base, [prompt_base_subdir]} ->
+        CompileState.set_scope_key(:prompt_base, prompt_base_subdir<>"/")
+        [%{
+          id: nil,
+          method: :prompt_base,
+          params: %{ prompt_base_subdir: prompt_base_subdir}
+        }]
+    end
   end
 
   def parse_command(
@@ -71,14 +81,20 @@ defmodule Pidge.Compiler.PidgeScript do
         :.,
         _,
         [
-          {_,_,[:Local]},
+          {:__aliases__,_,[:Local | alias_path]},
           function_name
         ]
       }, _, args}) do
+    CompileState.push_meta_key(:local_functions, {alias_path, function_name})
+
+    parsed_args = args |> Enum.map(fn arg ->
+      collapse_dottree(arg, [])
+    end)
+
     [%{
       id: nil,
       method: :local_function_call,
-      params: %{ function_name: function_name, args: args }
+      params: %{ alias_path: alias_path, function_name: function_name, args: parsed_args }
     }]
   end
 
@@ -96,7 +112,7 @@ defmodule Pidge.Compiler.PidgeScript do
       }
       ) do
     # Parse to grab the first elem if each tuple
-    pidge_access_chain = access_chain |> Enum.map(&(to_string(elem(&1, 0))))
+    pidge_access_chain = access_chain |> collapse_dottree([])
 
     parse_command({:=, a, [{pidge_access_chain, b, nil},c]})
   end
@@ -116,7 +132,7 @@ defmodule Pidge.Compiler.PidgeScript do
       end
 
     case value do
-      {{:., _line, [{:__aliases__, _, [:Local]}, _]}, _, _} ->
+      {{:., _line, [{:__aliases__, _, [:Local | _]}, _]}, _, _} ->
         parse_command(value) ++ [%{
           id: nil,
           method: :store_object,
@@ -201,7 +217,7 @@ defmodule Pidge.Compiler.PidgeScript do
 
     [%{
       id: nil,
-      method: :foreach,
+      method: :if,
       params: %{
         expression: compile_expression(expression),
         sub_pidge_ast: sub_pidge_ast
@@ -216,6 +232,16 @@ defmodule Pidge.Compiler.PidgeScript do
       method: :fly,
       params: %{
         sub_pidge_filename: sub_pidge_filename
+      }
+    }]
+  end
+
+  def parse_command({:bring, _, [first_var|_] = variables}) when is_atom(first_var) do
+    [%{
+      id: nil,
+      method: :bring,
+      params: %{
+        variables: variables
       }
     }]
   end
@@ -265,7 +291,7 @@ defmodule Pidge.Compiler.PidgeScript do
 
     case {function_name,args} do
       {:ai_object_extract, [conversation_id, prompt, format, opts]} ->
-        CompileState.push_meta_key(:prompt_files, to_string(prompt))
+        CompileState.push_meta_key(:prompt_files, CompileState.get_scope_key(:prompt_base,"")<>to_string(prompt))
         [%{
           id: prompt,
           method: function_name,
@@ -276,14 +302,14 @@ defmodule Pidge.Compiler.PidgeScript do
           }, opts, line)
         }]
       {_, [conversation_id, prompt]} ->
-        CompileState.push_meta_key(:prompt_files, to_string(prompt))
+        CompileState.push_meta_key(:prompt_files, CompileState.get_scope_key(:prompt_base,"")<>to_string(prompt))
         [%{
           id: prompt,
           method: function_name,
           params: %{conversation_id: to_string(conversation_id), prompt: to_string(prompt)}
         }]
       {_, [conversation_id, prompt, opts]} ->
-        CompileState.push_meta_key(:prompt_files, to_string(prompt))
+        CompileState.push_meta_key(:prompt_files, CompileState.get_scope_key(:prompt_base,"")<>to_string(prompt))
         [%{
           id: prompt,
           method: function_name,
@@ -306,17 +332,39 @@ defmodule Pidge.Compiler.PidgeScript do
   def collapse_dottree({{:., _, _} = dot, _, []}, acc) do
     collapse_dottree(dot, acc)
   end
-  def collapse_dottree({
-      {:., _line1, [Access, :get]},
-      _line2,
-      [
-        dot,
-        {var_key, _line3, _}
-      ]
-      }, acc) do
+  def collapse_dottree(
+    [
+      {dot, _, []},
+      {var_key, _line, _}
+    ], acc) do
     case var_key do
       atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc)
       _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
+    end
+  end
+  def collapse_dottree(
+    {
+      {
+        :.,
+        _line1,
+        [Access, :get]
+      },
+      _line2,
+      [
+        dot,
+        key_access
+      ]
+    }, acc) do
+    case key_access do
+      # a key who's value comes from a variable like foo[i]
+      {var_key,_,_} when is_atom(var_key) ->
+        collapse_dottree(dot, [{var_key}] ++ acc)
+      # a key who's value is another lookup like foo[stuff.i.j]
+      {var_key,_,_} ->
+        collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
+      # literal key like foo[0] or foo["key"]
+      x when is_integer(x) -> collapse_dottree(dot, [key_access] ++ acc)
+      x when is_binary(x) -> collapse_dottree(dot, [key_access] ++ acc)
     end
   end
   def collapse_dottree({{:., _line1, [Access, :get]}, _line2, [dot,""<>_ = string_key]}, acc) do
@@ -328,6 +376,9 @@ defmodule Pidge.Compiler.PidgeScript do
   def collapse_dottree(key, acc) when is_atom(key) do
     [to_string(key)] ++ acc
   end
+  def collapse_dottree(key, []) when is_binary(key), do: key
+  def collapse_dottree(key, []) when is_number(key), do: key
+  def collapse_dottree(key, []) when is_atom(key), do: key
 
   def parse_opts(function_name, params, opts, line) do
     opts = Map.new(opts)

@@ -13,8 +13,33 @@ defmodule Pidge.Compiler.CompileState do
   def delete_meta_key(key), do: GenServer.call(__MODULE__, {:delete_meta_key, key})
 
   def get_meta(), do: GenServer.call(__MODULE__, :get_meta)
-  def get_meta_key(key), do: GenServer.call(__MODULE__, {:get_meta_key, key})
+  def get_meta_key(key, default \\ nil) do
+    case GenServer.call(__MODULE__, {:get_meta_key, key}) do
+      nil -> default
+      value -> value
+    end
+  end
   def shift_meta_key(key), do: GenServer.call(__MODULE__, {:shift_meta_key, key})
+
+  # scope
+  def set_scope_key(key, value) do
+    keyname =
+      get_meta_key(:current_scope, [])
+      |> Enum.join("/")
+
+    set_meta_key("scope:#{keyname}", Map.put(get_meta_key("scope:#{keyname}", %{}), key, value))
+  end
+  def get_scope_key(key, default \\ nil) do
+    keyname =
+      get_meta_key(:current_scope, [])
+      |> Enum.join("/")
+
+    case get_meta_key("scope:#{keyname}", %{}) do
+      %{} = scope -> scope[key]
+      nil -> default
+    end
+  end
+
 
   ##########################
   ### Server Callbacks
