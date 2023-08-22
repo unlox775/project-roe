@@ -12,7 +12,7 @@ defmodule Pidge.Run do
   # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :pipe_from_variable]
 
   def run(args) do
     opts = parse_opts(args)
@@ -276,6 +276,11 @@ defmodule Pidge.Run do
 
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _) do
     State.clone_object(clone_from_object_name, object_name, RunState.get_opt(:session))
+    {:next}
+  end
+
+  def pipe_from_variable(_, %{params: %{ variable: variable }}, _) do
+    State.store_object(:input, State.get(variable, RunState.get_opt(:session)), RunState.get_opt(:session))
     {:next}
   end
 

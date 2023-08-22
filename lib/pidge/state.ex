@@ -81,7 +81,15 @@ defmodule Pidge.State do
     state = deep_set(state, object_name, clone_from)
     save_state(state, session_id)
 
-    deep_get(state, to_string(object_name))
+    deep_get(state, object_name)
+  end
+
+  def get(object_name, session_id) do
+    # get the current state
+    state = get_current_state(session_id)
+
+    # clone the object in the state
+    deep_get(state, object_name)
   end
 
   def wipe(session_id) do
