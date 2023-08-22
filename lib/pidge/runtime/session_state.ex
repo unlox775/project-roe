@@ -1,4 +1,4 @@
-defmodule Pidge.State do
+defmodule Pidge.Runtime.SessionState do
   import Pidge.Util
 
   def session_id_to_filepath(session_id) do

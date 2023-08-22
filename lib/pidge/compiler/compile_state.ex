@@ -35,7 +35,11 @@ defmodule Pidge.Compiler.CompileState do
       |> Enum.join("/")
 
     case get_meta_key("scope:#{keyname}", %{}) do
-      %{} = scope -> scope[key]
+      %{} = scope ->
+        case Map.has_key?(scope, key) do
+          true -> scope[key]
+          false -> default
+        end
       nil -> default
     end
   end

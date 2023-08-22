@@ -5,7 +5,7 @@ defmodule Pidge.Run do
 
   import Pidge.Util
 
-  alias Pidge.State
+  alias Pidge.Runtime.SessionState
   alias Pidge.Runtime.RunState
   alias Pidge.Run.AIObjectExtract
 
@@ -270,22 +270,22 @@ defmodule Pidge.Run do
   def ai_object_extract(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
 
   def store_object(_, %{params: %{ object_name: object_name }}, _) do
-    State.store_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
+    SessionState.store_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
     {:next}
   end
 
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _) do
-    State.clone_object(clone_from_object_name, object_name, RunState.get_opt(:session))
+    SessionState.clone_object(clone_from_object_name, object_name, RunState.get_opt(:session))
     {:next}
   end
 
   def pipe_from_variable(_, %{params: %{ variable: variable }}, _) do
-    State.store_object(:input, State.get(variable, RunState.get_opt(:session)), RunState.get_opt(:session))
+    SessionState.store_object(:input, SessionState.get(variable, RunState.get_opt(:session)), RunState.get_opt(:session))
     {:next}
   end
 
   def merge_into_object(_, %{params: %{ object_name: object_name }}, _) do
-    State.merge_into_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
+    SessionState.merge_into_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
     {:next}
   end
 
@@ -348,7 +348,7 @@ defmodule Pidge.Run do
     iter_variable_name: iter_variable_name,
     }}) do
     # Get the list to iterate on
-    state = State.get_current_state(RunState.get_opt(:session))
+    state = SessionState.get_current_state(RunState.get_opt(:session))
     list = state |> get_nested_key(loop_on_variable_name)
     bug(2, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
@@ -448,7 +448,7 @@ defmodule Pidge.Run do
 
   def compile_template(prompt) do
     state =
-      State.get_current_state(RunState.get_opt(:session))
+      SessionState.get_current_state(RunState.get_opt(:session))
 
     # merge each of the closures into the state
     state =

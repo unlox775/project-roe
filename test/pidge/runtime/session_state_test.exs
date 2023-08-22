@@ -1,6 +1,6 @@
-defmodule Pidge.StateTest do
+defmodule Pidge.SessionStateTest do
   use ExUnit.Case, async: true
-  alias Pidge.State
+  alias Pidge.Runtime.SessionState
 
   @obj_name :product
   @obj_name_str "product"
@@ -16,9 +16,9 @@ defmodule Pidge.StateTest do
     test "returns the object we stored" do
       session_id = get_session_id(__ENV__.line)
 
-      State.wipe(session_id)
-      State.store_object(@obj_value_simple, @obj_name, session_id)
-      state = State.get_current_state(session_id)
+      SessionState.wipe(session_id)
+      SessionState.store_object(@obj_value_simple, @obj_name, session_id)
+      state = SessionState.get_current_state(session_id)
 
       assert state[@obj_name_str] == @obj_value_simple
       assert state["json"][@obj_name_str] == @obj_value_json
@@ -34,10 +34,10 @@ defmodule Pidge.StateTest do
         |> Map.put("price", 10.99)
         |> Map.delete("item")
 
-      State.wipe(session_id)
-      State.store_object(@obj_value_simple, @obj_name, session_id)
-      State.merge_into_object(merge_in_obj, @obj_name, session_id)
-      state = State.get_current_state(session_id)
+      SessionState.wipe(session_id)
+      SessionState.store_object(@obj_value_simple, @obj_name, session_id)
+      SessionState.merge_into_object(merge_in_obj, @obj_name, session_id)
+      state = SessionState.get_current_state(session_id)
 
       assert state[@obj_name_str]["item"] == "book"
       assert state[@obj_name_str]["price"] == 10.99
@@ -49,10 +49,10 @@ defmodule Pidge.StateTest do
     test "clones an existing object in the state" do
       session_id = get_session_id(__ENV__.line)
 
-      State.wipe(session_id)
-      State.store_object(@obj_value_simple, @obj_name, session_id)
-      State.clone_object(@obj_name, "new_product", session_id)
-      state = State.get_current_state(session_id)
+      SessionState.wipe(session_id)
+      SessionState.store_object(@obj_value_simple, @obj_name, session_id)
+      SessionState.clone_object(@obj_name, "new_product", session_id)
+      state = SessionState.get_current_state(session_id)
 
       assert state["new_product"] == @obj_value_simple
     end
