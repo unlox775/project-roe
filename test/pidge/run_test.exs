@@ -38,6 +38,10 @@ defmodule Pidge.RunTest do
     test "run test" do
       session_id = "test/run_test"
 
+      {:ok, sessionstate_pid} = SessionState.start_link(session_id)
+      SessionState.wipe()
+      SessionState.stop(sessionstate_pid)
+
       opts = %{
         from_step: @step_name,
         verbosity: -5,
