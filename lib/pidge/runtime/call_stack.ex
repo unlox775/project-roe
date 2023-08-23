@@ -17,15 +17,19 @@ defmodule Pidge.Runtime.CallStack do
     RunState.set_meta_key(:closure_states, Enum.drop(closure_states, -1))
   end
 
-  def get_stack_address() do
+  def get_stack_address(false) do
     case RunState.get_meta_key(:closure_states) do
       nil -> []
       closure_states ->
         Enum.map(closure_states, fn {seq, _, foreach_loop_index} ->
-          "foreach-#{seq}[#{foreach_loop_index}]"
+          case foreach_loop_index do
+            nil -> "block-#{seq}"
+            _ -> "foreach-#{seq}[#{foreach_loop_index}]"
+          end
         end)
     end
   end
+  def get_stack_address(true), do: get_stack_address(false) |> Enum.join(".")
 
   def get_complete_variable_namespace do
     state =

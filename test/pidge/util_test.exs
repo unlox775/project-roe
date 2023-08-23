@@ -17,7 +17,7 @@ defmodule Pidge.UtilTest do
     end
   end
 
-  describe "get_nested_key/2" do
+  describe "get_nested_key/3" do
     setup do
       state = %{
         a: %{
@@ -30,15 +30,15 @@ defmodule Pidge.UtilTest do
     end
 
     test "returns state for empty key list", %{state: state} do
-      assert Util.get_nested_key(state, []) == state
+      assert Util.get_nested_key(state, [], nil) == state
     end
 
     test "returns nested map value for key list", %{state: state} do
-      assert Util.get_nested_key(state, [:a, :b]) == %{c: "value"}
+      assert Util.get_nested_key(state, [:a, :b], nil) == %{c: "value"}
     end
 
-    test "returns empty map for non-existent key", %{state: state} do
-      assert Util.get_nested_key(state, [:a, :d]) == %{}
+    test "returns default for non-existent key", %{state: state} do
+      assert Util.get_nested_key(state, [:a, :d], "none") == "none"
     end
   end
 

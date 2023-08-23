@@ -52,6 +52,7 @@ defmodule Pidge.RunTest do
 
       {:ok, sessionstate_pid} = SessionState.start_link(session_id)
       state = SessionState.get()
+      IO.inspect(state, label: "state")
       SessionState.stop(sessionstate_pid)
 
       assert [%{

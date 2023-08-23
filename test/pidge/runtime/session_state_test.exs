@@ -32,7 +32,8 @@ defmodule Pidge.SessionStateTest do
 
       SessionState.wipe()
       SessionState.store_object(@obj_value_simple, @obj_name)
-      SessionState.merge_into_object(merge_in_obj, @obj_name)
+      SessionState.store_object(merge_in_obj, "merge_in_obj")
+      SessionState.merge_into_object("merge_in_obj", @obj_name)
       state = SessionState.get()
 
       assert state[@obj_name_str]["item"] == "book"
