@@ -34,15 +34,9 @@ defmodule Pidge.RunTest do
   </pre>
 """
 
-def get_session_id(line) do
-  token = :crypto.hash(:sha256,"#{__MODULE__}_#{line}") |> Base.encode16
-  "test/#{String.slice(token, 0, 8)}"
-end
-
   describe "run/2" do
     test "run test" do
-      session_id = get_session_id(__ENV__.line)
-      SessionState.wipe(session_id)
+      session_id = "test/run_test"
 
       opts = %{
         from_step: @step_name,
@@ -52,7 +46,9 @@ end
       }
       assert {:last} = Run.run(opts, @simple_ast)
 
-      state = SessionState.get_current_state(session_id)
+      {:ok, sessionstate_pid} = SessionState.start_link(session_id)
+      state = SessionState.get()
+      SessionState.stop(sessionstate_pid)
 
       assert [%{
         "hobby" => "pizza eating",

@@ -89,19 +89,24 @@ defmodule Pidge.Run do
 
   def run(opts, pidge_ast) do
     {:ok, runstate_pid} = RunState.start_link(opts)
+    {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
 
-    with 1 <- 1,
-      # Find the step to start at
-      {:ok, last_step, step, index} <- find_step(pidge_ast),
-      # Run post process on last step if needed
-      {:ok} <- post_process(last_step),
-      {:ok} <- execute(pidge_ast, step, index)
-    do
-      # end the state process
-      RunState.stop(runstate_pid)
-      {:ok}
-    end
-  end
+    return =
+      with 1 <- 1,
+        # Find the step to start at
+        {:ok, last_step, step, index} <- find_step(pidge_ast),
+        # Run post process on last step if needed
+        {:ok} <- post_process(last_step),
+        {:ok} <- execute(pidge_ast, step, index)
+      do
+        # end the state process
+        {:ok}
+      end
+
+    RunState.stop(runstate_pid)
+    SessionState.stop(sessionstate_pid)
+    return
+end
 
   def print_help do
     IO.puts("""
@@ -270,22 +275,22 @@ defmodule Pidge.Run do
   def ai_object_extract(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
 
   def store_object(_, %{params: %{ object_name: object_name }}, _) do
-    SessionState.store_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
+    SessionState.store_object(RunState.get_opt(:input), object_name)
     {:next}
   end
 
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _) do
-    SessionState.clone_object(clone_from_object_name, object_name, RunState.get_opt(:session))
+    SessionState.clone_object(clone_from_object_name, object_name)
     {:next}
   end
 
   def pipe_from_variable(_, %{params: %{ variable: variable }}, _) do
-    SessionState.store_object(:input, SessionState.get(variable, RunState.get_opt(:session)), RunState.get_opt(:session))
+    SessionState.store_object(:input, SessionState.get(variable))
     {:next}
   end
 
   def merge_into_object(_, %{params: %{ object_name: object_name }}, _) do
-    SessionState.merge_into_object(RunState.get_opt(:input), object_name, RunState.get_opt(:session))
+    SessionState.merge_into_object(RunState.get_opt(:input), object_name)
     {:next}
   end
 
@@ -348,7 +353,7 @@ defmodule Pidge.Run do
     iter_variable_name: iter_variable_name,
     }}) do
     # Get the list to iterate on
-    state = SessionState.get_current_state(RunState.get_opt(:session))
+    state = SessionState.get()
     list = state |> get_nested_key(loop_on_variable_name)
     bug(2, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
@@ -448,7 +453,7 @@ defmodule Pidge.Run do
 
   def compile_template(prompt) do
     state =
-      SessionState.get_current_state(RunState.get_opt(:session))
+      SessionState.get()
 
     # merge each of the closures into the state
     state =
