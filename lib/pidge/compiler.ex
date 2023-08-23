@@ -4,6 +4,8 @@ defmodule Pidge.Compiler do
   alias Pidge.Compiler.LocalFunction
   alias Pidge.Compiler.CompileState
 
+  import Pidge.Util
+
   def compile(_args) do
     {:ok, compilestate_pid} = CompileState.start_link(%{
       pidge_scripts: ["main"],
@@ -117,14 +119,5 @@ defmodule Pidge.Compiler do
             {:ok, item}
         end
     end
-  end
-
-  def camel_to_snake_case(string) do
-    string
-    |> to_string()
-    |> String.replace(~r/([A-Z])/, "_\\1")
-    |> String.replace(~r/^_+/, "")
-    |> String.downcase()
-
   end
 end

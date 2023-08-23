@@ -272,6 +272,14 @@ defmodule Pidge.Compiler.PidgeScript do
     }]
   end
 
+  def parse_command({:continue, _line, nil}) do
+    [%{
+      id: nil,
+      method: :continue,
+      params: %{}
+    }]
+  end
+
   def parse_command({variable_name, _line, nil}) when is_atom(variable_name) do
     [%{
       id: nil,

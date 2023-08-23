@@ -4,11 +4,13 @@ defmodule Pidge.Util do
     Enum.map(keys_list, &to_string/1)
   def make_list_of_strings(key), do: make_list_of_strings([key])
 
-  def get_nested_key(state, []), do: state
-  def get_nested_key(state, [key|tail]) do
+  def get_nested_key(state, [], default) do
+    if state == nil, do: default, else: state
+  end
+  def get_nested_key(state, [key|tail], default) do
     case is_map(state) && Map.has_key?(state, key) do
-      true -> get_nested_key(Map.get(state, key), tail)
-      false -> %{}
+      true -> get_nested_key(Map.get(state, key), tail, default)
+      false -> default
     end
   end
 
@@ -20,6 +22,14 @@ defmodule Pidge.Util do
       end
 
     Map.put(state, key, new_value)
+  end
+
+  def camel_to_snake_case(string) do
+    string
+    |> to_string()
+    |> String.replace(~r/([A-Z])/, "_\\1")
+    |> String.replace(~r/^_+/, "")
+    |> String.downcase()
   end
 end
 

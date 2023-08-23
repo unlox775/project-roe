@@ -5,14 +5,14 @@ defmodule Pidge.Run do
 
   import Pidge.Util
 
-  alias Pidge.Runtime.SessionState
-  alias Pidge.Runtime.RunState
-  alias Pidge.Run.AIObjectExtract
+  alias Pidge.Runtime.{ SessionState, RunState, CallStack }
+
+  alias Pidge.Run.{ AIObjectExtract, LocalFunction }
 
   # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :pipe_from_variable]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call]
 
   def run(args) do
     opts = parse_opts(args)
@@ -285,12 +285,12 @@ end
   end
 
   def pipe_from_variable(_, %{params: %{ variable: variable }}, _) do
-    SessionState.store_object(:input, SessionState.get(variable))
+    RunState.set_opt(:input, SessionState.get(variable))
     {:next}
   end
 
-  def merge_into_object(_, %{params: %{ object_name: object_name }}, _) do
-    SessionState.merge_into_object(RunState.get_opt(:input), object_name)
+  def merge_into_object(_, %{params: %{ object_name: object_name, clone_from_object_name: clone_from_object_name }}, _) do
+    SessionState.merge_into_object(clone_from_object_name, object_name)
     {:next}
   end
 
@@ -310,7 +310,7 @@ end
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
-            {:last, _, _, _} -> {:next, leave_closure()}
+            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
             {:ok, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index}
           end
       end
@@ -329,7 +329,7 @@ end
             # So increment to the next loop item and call it again
             bug(2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
             RunState.set_meta_key(:foreach_loop_index, foreach_loop_index + 1)
-            leave_closure()
+            CallStack.leave_closure()
             foreach(pidge_ast, foreach_step, ast_index)
 
           # Otherwise, return whatever it returns as our step return
@@ -354,7 +354,7 @@ end
     }}) do
     # Get the list to iterate on
     state = SessionState.get()
-    list = state |> get_nested_key(loop_on_variable_name)
+    list = state |> get_nested_key(loop_on_variable_name, nil)
     bug(2, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
 
@@ -377,21 +377,69 @@ end
         %{}
         |> Map.put(instance_variable_name, Enum.at(list, foreach_loop_index))
         |> Map.put(iter_variable_name, foreach_loop_index)
-      {:ok, enter_closure(closure_state, {seq, foreach_loop_index}) }
+      {:ok, CallStack.enter_closure(closure_state, {seq, foreach_loop_index}) }
     end
   end
 
-  def enter_closure(closure_state, {closure_code_line, loop_iteration}) do
-    closure = {closure_code_line, closure_state, loop_iteration}
-    case RunState.get_meta_key(:closure_states) do
-      nil -> RunState.set_meta_key(:closure_states, [closure])
-      closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure])
+  def if(_pidge_ast, %{params: %{expression: expression_ast, sub_pidge_ast: sub_pidge_ast}} = if_step, _ast_index) do
+    # Generate an AST loading the state in and evaluating the expression
+    state = SessionState.get()
+    sets = state |> Enum.map(fn {k,v} ->
+      {:=, [line: 1], [
+        {String.to_atom(k), [line: 1], nil},
+        Code.string_to_quoted!(inspect(v, limit: :infinity))
+        ]}
+    end)
+    expr_ast = {:__block__, [], sets ++ [expression_ast]}
+    {return, _} = Code.eval_quoted(expr_ast)
+
+    # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
+    {sub_step,sub_ast_index} =
+      case RunState.get_meta_key(:sub_from_step) do
+        nil -> {Enum.at(sub_pidge_ast,0), 0}
+        sub_from_step ->
+          RunState.set_opt(:from_step, sub_from_step)
+          case find_step(sub_pidge_ast) do
+            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
+            {:ok, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index}
+          end
+      end
+    bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
+
+    if return do
+      {:ok, _closure_state} = CallStack.enter_closure(%{}, {nil, if_step})
+      case execute(sub_pidge_ast, sub_step, sub_ast_index) do
+        # execute has told us it finshed the last command in the if block
+        {:last} ->
+          CallStack.leave_closure()
+          # So effectively our if function has completely concluded, say Next!
+          {:next}
+
+        # Otherwise, return whatever it returns as our step return
+        {_, _} = x -> x
+
+        error ->
+          {:error, "Error in if: #{inspect(error)}"}
+      end
+    else
+      # The expression evaluated to false, so skip the if block
+      {:next}
     end
   end
 
-  def leave_closure() do
-    closure_states = RunState.get_meta_key(:closure_states)
-    RunState.set_meta_key(:closure_states, Enum.drop(closure_states, -1))
+  def local_function_call(_pidge_ast, %{params: %{
+    alias_path: alias_path,
+    function_name: function_name,
+    args: args,
+    }}, _ast_index) do
+    state = SessionState.get()
+    evaluated_args = Enum.map(args, &(get_nested_key(state, &1, nil)))
+
+    result = LocalFunction.function_call(alias_path, function_name, evaluated_args)
+    bug(2, [label: "local_function_call", result: result])
+    RunState.set_opt(:input, result)
+    bug(5, [input_with_result_in_it: RunState.get_opt(:input)])
+    {:next}
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id) do
@@ -428,18 +476,11 @@ end
   end
 
   def get_from_step(from_id) do
-    closure_trail_list =
-      case RunState.get_meta_key(:closure_states) do
-        nil -> []
-        closure_states ->
-          Enum.map(closure_states, fn {seq, _, foreach_loop_index} ->
-            "foreach-#{seq}[#{foreach_loop_index}]"
-          end)
-      end
+    stack_address = CallStack.get_stack_address()
 
-    case closure_trail_list do
+    case stack_address do
       [] -> "#{from_id}"
-      _ -> "#{Enum.join(closure_trail_list, ".")}.#{from_id}"
+      _ -> "#{Enum.join(stack_address, ".")}.#{from_id}"
     end
   end
 
@@ -452,19 +493,7 @@ end
   end
 
   def compile_template(prompt) do
-    state =
-      SessionState.get()
-
-    # merge each of the closures into the state
-    state =
-      case RunState.get_meta_key(:closure_states) do
-        nil -> state
-        closure_states ->
-          Enum.reduce(closure_states, state, fn {_, closure_state, _}, state ->
-            bug(2, [label: "compile_template", closure_state: closure_state])
-            Map.merge(state, closure_state)
-          end)
-      end
+    state = CallStack.get_complete_variable_namespace()
 
     keys_to_add_from_opts = [:input, :human_input, :optional_human_input]
     # Add the keys if they are present
