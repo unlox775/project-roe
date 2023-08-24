@@ -275,22 +275,22 @@ end
   def ai_object_extract(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
 
   def store_object(_, %{params: %{ object_name: object_name }}, _) do
-    SessionState.store_object(RunState.get_opt(:input), object_name)
+    CallStack.set_variable(object_name, RunState.get_opt(:input))
     {:next}
   end
 
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _) do
-    SessionState.clone_object(clone_from_object_name, object_name)
+    CallStack.clone_variable(clone_from_object_name, object_name)
     {:next}
   end
 
   def pipe_from_variable(_, %{params: %{ variable: variable }}, _) do
-    RunState.set_opt(:input, SessionState.get(variable))
+    RunState.set_opt(:input, CallStack.get_variable(variable))
     {:next}
   end
 
-  def merge_into_object(_, %{params: %{ object_name: object_name, clone_from_object_name: clone_from_object_name }}, _) do
-    SessionState.merge_into_object(clone_from_object_name, object_name)
+  def merge_into_object(_, %{params: %{ object_name: merge_into_object_name, clone_from_object_name: clone_from_object_name }}, _) do
+    CallStack.merge_into_variable(clone_from_object_name, merge_into_object_name)
     {:next}
   end
 
@@ -353,7 +353,7 @@ end
     iter_variable_name: iter_variable_name,
     }}) do
     # Get the list to iterate on
-    state = SessionState.get()
+    state = CallStack.get_complete_variable_namespace()
     list = state |> get_nested_key(loop_on_variable_name, nil)
     bug(2, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
@@ -383,7 +383,7 @@ end
 
   def if(_pidge_ast, %{params: %{expression: expression_ast, sub_pidge_ast: sub_pidge_ast}} = if_step, _ast_index) do
     # Generate an AST loading the state in and evaluating the expression
-    state = SessionState.get()
+    state = CallStack.get_complete_variable_namespace()
     sets = state |> Enum.map(fn {k,v} ->
       {:=, [line: 1], [
         {String.to_atom(k), [line: 1], nil},
@@ -432,7 +432,7 @@ end
     function_name: function_name,
     args: args,
     }}, _ast_index) do
-    state = SessionState.get()
+    state = CallStack.get_complete_variable_namespace()
     evaluated_args = Enum.map(args, &(get_nested_key(state, &1, nil)))
 
     result = LocalFunction.function_call(alias_path, function_name, evaluated_args)

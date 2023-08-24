@@ -8,8 +8,8 @@ defmodule Pidge.Runtime.SessionState do
   def stop(pid), do: GenServer.stop(pid, :normal)
 
   # global state
-  def store_object(object, object_name), do:
-    GenServer.call(__MODULE__, {:store_object, object, object_name})
+  def store_object(object_name, object), do:
+    GenServer.call(__MODULE__, {:store_object, object_name, object})
   def merge_into_object(clone_from_object_name, object_name), do:
     GenServer.call(__MODULE__, {:merge_into_object, clone_from_object_name, object_name})
   def clone_object(clone_from_object_name, object_name), do:
@@ -23,8 +23,9 @@ defmodule Pidge.Runtime.SessionState do
 
   # stack state
   def get_stack_state(), do: GenServer.call(__MODULE__, :get_stack_state)
-  def get_from_stack(frame_id, object_name), do: GenServer.call(__MODULE__, {:get_from_stack, frame_id, object_name})
-  def store_in_stack([_|_] = frame_ids, object, object_name), do: GenServer.call(__MODULE__, {:get_from_stack, frame_ids |> Enum.reverse(), object, object_name})
+  def get_from_stack_frame(frame_id, object_name), do: GenServer.call(__MODULE__, {:get_from_stack_frame, frame_id, object_name})
+  def get_from_stack(frame_ids, object_name), do: GenServer.call(__MODULE__, {:get_from_stack_frame, frame_ids |> Enum.reverse(), object_name})
+  def store_in_stack(frame_ids, object_name, object) when is_list(frame_ids), do: GenServer.call(__MODULE__, {:store_in_stack, frame_ids |> Enum.reverse(), object_name, object})
 
 
   ##########################
@@ -64,7 +65,7 @@ defmodule Pidge.Runtime.SessionState do
     end
   end
 
-  def handle_call({:store_object, object, object_name}, _from, state) do
+  def handle_call({:store_object, object_name, object}, _from, state) do
     # store the object in the state
     global = update_namespace_key(state.global, object_name, object)
 
@@ -75,18 +76,7 @@ defmodule Pidge.Runtime.SessionState do
     # store the object in the state
     clone_from_object = deep_get(state.global, clone_from_object_name, %{})
     merged_object = Map.merge(deep_get(state.global, object_name, %{}), clone_from_object)
-    global = deep_set(state.global, object_name, merged_object)
-
-    # If the object is a map, store the JSON equivalet as well under json.object_name
-    global =
-      case is_map(merged_object) && (! is_list(object_name) || Enum.count(object_name) == 1) do
-        true ->
-          json =
-            Map.get(global, "json", %{})
-            |> Map.put(to_string(object_name), Jason.encode!(merged_object, pretty: true))
-          Map.put(global, "json", json)
-        false -> global
-      end
+    global = update_namespace_key(state.global, object_name, merged_object)
 
     {:reply, merged_object, save_global(global, state)}
   end
@@ -102,7 +92,7 @@ defmodule Pidge.Runtime.SessionState do
   def handle_call({:get, object_name}, _from, state) do
     {:reply, deep_get(state.global, object_name), state}
   end
-  def handle_call({:get_from_stack, frame_id, object_name}, _from, state) do
+  def handle_call({:get_from_stack_frame, frame_id, object_name}, _from, state) do
     {:reply, deep_get(Map.get(state.stack_state, frame_id, %{}), object_name), state}
   end
 
@@ -119,7 +109,7 @@ defmodule Pidge.Runtime.SessionState do
 
   # The idea is to store in the deepest stack frame first, if the key exists there
   # Then if not, fall back to less and less deep.  Last resort, store in global
-  def handle_call({:store_in_stack, [deepest|shallower_frame_ids] = _reverse_frame_ids, object, object_name}, from, state) do
+  def handle_call({:store_in_stack, [deepest|shallower_frame_ids] = _reverse_frame_ids, object_name, object}, from, state) do
     variable_key =
       case object_name do
         [x|_] -> x
@@ -128,14 +118,33 @@ defmodule Pidge.Runtime.SessionState do
 
     # Check to see if this key is in the deepest frame
     cond do
-      !Map.has_key?(state.stack_state, deepest) || !Map.has_key?(state.stack_state[deepest], variable_key) ->
-        handle_call({:store_in_stack, shallower_frame_ids, object, object_name}, from, state)
-      true
-        -> save_frame_state(deepest, deep_set(state.stack_state[deepest], object_name, object), state)
+      Map.has_key?(state.stack_state, deepest) && Map.has_key?(state.stack_state[deepest], variable_key) ->
+        save_frame_state(deepest, deep_set(state.stack_state[deepest], object_name, object), state)
+      true ->
+        handle_call({:store_in_stack, shallower_frame_ids, object_name, object}, from, state)
     end
   end
-  def handle_call({:store_in_stack, [] = _reverse_frame_ids, object, object_name}, from, state) do
-    handle_call({:store_object, object, object_name}, from, state)
+  def handle_call({:store_in_stack, [] = _reverse_frame_ids, object_name, object}, from, state) do
+    handle_call({:store_object, object_name, object}, from, state)
+  end
+
+  def handle_call({:get_from_stack, [deepest|shallower_frame_ids] = _reverse_frame_ids, object_name}, from, state) do
+    variable_key =
+      case object_name do
+        [x|_] -> x
+        _ -> object_name
+      end
+
+    # Check to see if this key is in the deepest frame
+    cond do
+      Map.has_key?(state.stack_state, deepest) && Map.has_key?(state.stack_state[deepest], variable_key) ->
+        handle_call({:get_from_stack_frame, deepest, object_name}, from, state)
+      true ->
+        handle_call({:get_from_stack, shallower_frame_ids, object_name}, from, state)
+    end
+  end
+  def handle_call({:get_from_stack, [] = _reverse_frame_ids, object_name}, from, state) do
+    handle_call({:get, object_name}, from, state)
   end
 
   # Internal Methods
@@ -155,7 +164,7 @@ defmodule Pidge.Runtime.SessionState do
   end
 
   defp save_global(global, state), do: state |> Map.put(:global, global) |> save()
-  defp save_stack_state(stack_state, state), do: state |> Map.put(:stack_state, stack_state) |> save()
+  # defp save_stack_state(stack_state, state), do: state |> Map.put(:stack_state, stack_state) |> save()
   defp save_frame_state(frame_id, frame_state, state), do: state |> Map.put(:stack_state, Map.put(state.stack_state, frame_id, frame_state)) |> save()
   defp save(state) do
     # save the state as JSON

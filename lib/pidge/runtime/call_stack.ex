@@ -46,13 +46,32 @@ defmodule Pidge.Runtime.CallStack do
     end
   end
 
-  def get_variable(variable_name) do
-    # Really inefficient way, but it works for now
-    state =
-      get_complete_variable_namespace()
-
-    deep_get(state, variable_name)
+  def get_variable(variable_name, default \\ nil) do
+    case SessionState.get_from_stack(get_stack_address(:list), variable_name) do
+      nil -> default
+      value -> value
+    end
   end
+
+  def set_variable(variable_name, value) do
+    SessionState.store_in_stack(get_stack_address(:list), variable_name, value)
+  end
+
+  def clone_variable(clone_from_object_name, object_name) do
+    clone_from = get_variable(clone_from_object_name)
+    set_variable(object_name, clone_from)
+
+    clone_from
+  end
+
+  def merge_into_variable(clone_from_object_name, merge_into_object_name) do
+    clone_from_object = get_variable(clone_from_object_name)
+    merged_object = Map.merge(get_variable(merge_into_object_name, %{}), clone_from_object)
+    set_variable(merge_into_object_name, clone_from_object)
+
+    clone_from_object
+  end
+
 
   # quick functions for getting string-based nested key lists
   def deep_get(state, key_list, default \\ nil) do

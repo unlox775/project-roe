@@ -15,7 +15,7 @@ defmodule Pidge.SessionStateTest do
     test "returns the object we stored" do
       SessionState.start_link("foo")
       SessionState.wipe()
-      SessionState.store_object(@obj_value_simple, @obj_name)
+      SessionState.store_object(@obj_name, @obj_value_simple)
       state = SessionState.get()
 
       assert state[@obj_name_str] == @obj_value_simple
@@ -31,8 +31,8 @@ defmodule Pidge.SessionStateTest do
         |> Map.delete("item")
 
       SessionState.wipe()
-      SessionState.store_object(@obj_value_simple, @obj_name)
-      SessionState.store_object(merge_in_obj, "merge_in_obj")
+      SessionState.store_object(@obj_name, @obj_value_simple)
+      SessionState.store_object("merge_in_obj",merge_in_obj)
       SessionState.merge_into_object("merge_in_obj", @obj_name)
       state = SessionState.get()
 
@@ -45,7 +45,7 @@ defmodule Pidge.SessionStateTest do
   describe "clone_object/3" do
     test "clones an existing object in the state" do
       SessionState.wipe()
-      SessionState.store_object(@obj_value_simple, @obj_name)
+      SessionState.store_object(@obj_name, @obj_value_simple)
       SessionState.clone_object(@obj_name, "new_product")
       state = SessionState.get()
 
