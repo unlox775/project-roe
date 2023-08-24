@@ -84,7 +84,7 @@ defmodule Pidge.Runtime.SessionState do
   def handle_call({:clone_object, clone_from_object_name, object_name}, _from, state) do
     # clone the object in the state
     clone_from = deep_get(state.global, clone_from_object_name)
-    global = deep_set(state.global, object_name, clone_from)
+    global = update_namespace_key(state.global, object_name, clone_from)
 
     {:reply, deep_get(global, object_name), save_global(global, state)}
   end
@@ -124,7 +124,7 @@ defmodule Pidge.Runtime.SessionState do
     case Enum.find_index(scan ++ [global], &(&1 == true)) do
       nil ->
         # New variable! If we didn't find the key in any of the frames, store it in the deepest state
-        frame = deep_set(Map.get(state.stack_state, deepest, %{}), object_name, object)
+        frame = update_namespace_key(Map.get(state.stack_state, deepest, %{}), object_name, object)
         {:reply, object, save_frame_state(deepest, frame, state)}
       frame_idx ->
         # If we did find the key in a frame, store it in that frame (or global)
@@ -132,7 +132,8 @@ defmodule Pidge.Runtime.SessionState do
           :global ->
             handle_call({:store_object, object_name, object}, from, state)
           frame_id ->
-            handle_call({:store_in_stack_frame, frame_id, object_name, object}, from, state)
+            frame = update_namespace_key(Map.get(state.stack_state, frame_id, %{}), object_name, object)
+            {:reply, object, save_frame_state(frame_id, frame, state)}
       end
     end
   end

@@ -384,6 +384,7 @@ end
   def if(_pidge_ast, %{params: %{expression: expression_ast, sub_pidge_ast: sub_pidge_ast}} = if_step, _ast_index) do
     # Generate an AST loading the state in and evaluating the expression
     state = CallStack.get_complete_variable_namespace()
+    bug(5, [label: "if expr state", state: state])
     sets = state |> Enum.map(fn {k,v} ->
       {:=, [line: 1], [
         {String.to_atom(k), [line: 1], nil},
@@ -391,6 +392,7 @@ end
         ]}
     end)
     expr_ast = {:__block__, [], sets ++ [expression_ast]}
+    # bug(5, [label: "if expr ast", expr_ast: expr_ast])
     {return, _} = Code.eval_quoted(expr_ast)
 
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)

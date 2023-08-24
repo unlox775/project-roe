@@ -5,11 +5,16 @@ defmodule Pidge.Runtime.CallStack do
   import Pidge.Util
 
   def enter_closure(closure_state, {closure_code_line, loop_iteration}) do
-    closure = {closure_code_line, closure_state, loop_iteration}
+    closure = {closure_code_line, loop_iteration}
     case RunState.get_meta_key(:closure_states) do
       nil -> RunState.set_meta_key(:closure_states, [closure])
       closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure])
     end
+
+    # set each of the keys in the closure state with set_variable
+    Enum.each(closure_state, fn {key, value} ->
+      set_variable(key, value)
+    end)
   end
 
   def leave_closure() do
@@ -21,7 +26,7 @@ defmodule Pidge.Runtime.CallStack do
     case RunState.get_meta_key(:closure_states) do
       nil -> []
       closure_states ->
-        Enum.map(closure_states, fn {seq, _, foreach_loop_index} ->
+        Enum.map(closure_states, fn {seq, foreach_loop_index} ->
           case foreach_loop_index do
             nil -> "block-#{seq}"
             _ -> "foreach-#{seq}[#{foreach_loop_index}]"
@@ -32,16 +37,16 @@ defmodule Pidge.Runtime.CallStack do
   def get_stack_address(:string), do: get_stack_address(false) |> Enum.join(".")
 
   def get_complete_variable_namespace do
-    state =
-      SessionState.get()
+    global = SessionState.get()
+    stack_state = SessionState.get_stack_state()
 
     # merge each of the closures into the state
     case RunState.get_meta_key(:closure_states) do
-      nil -> state
-      closure_states ->
-        Enum.reduce(closure_states, state, fn {_, closure_state, _}, state ->
-          bug(2, [label: "compile_template", closure_state: closure_state])
-          Map.merge(state, closure_state)
+      nil -> global
+      _ ->
+        Enum.reduce(get_stack_address(:list), global, fn frame_id, state ->
+          bug(2, [label: "compile_template", closure_state: Map.get(stack_state, frame_id, %{})])
+          Map.merge(state, Map.get(stack_state, frame_id, %{}))
         end)
     end
   end
