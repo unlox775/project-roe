@@ -17,7 +17,7 @@ defmodule Pidge.Runtime.CallStack do
     RunState.set_meta_key(:closure_states, Enum.drop(closure_states, -1))
   end
 
-  def get_stack_address(false) do
+  def get_stack_address(:list) do
     case RunState.get_meta_key(:closure_states) do
       nil -> []
       closure_states ->
@@ -29,7 +29,7 @@ defmodule Pidge.Runtime.CallStack do
         end)
     end
   end
-  def get_stack_address(true), do: get_stack_address(false) |> Enum.join(".")
+  def get_stack_address(:string), do: get_stack_address(false) |> Enum.join(".")
 
   def get_complete_variable_namespace do
     state =

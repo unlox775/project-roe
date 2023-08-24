@@ -476,7 +476,7 @@ end
   end
 
   def get_from_step(from_id) do
-    stack_address = CallStack.get_stack_address()
+    stack_address = CallStack.get_stack_address(:list)
 
     case stack_address do
       [] -> "#{from_id}"
