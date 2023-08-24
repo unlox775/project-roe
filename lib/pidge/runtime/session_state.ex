@@ -24,8 +24,8 @@ defmodule Pidge.Runtime.SessionState do
   # stack state
   def get_stack_state(), do: GenServer.call(__MODULE__, :get_stack_state)
   def get_from_stack_frame(frame_id, object_name), do: GenServer.call(__MODULE__, {:get_from_stack_frame, frame_id, object_name})
-  def get_from_stack(frame_ids, object_name), do: GenServer.call(__MODULE__, {:get_from_stack_frame, frame_ids |> Enum.reverse(), object_name})
-  def store_in_stack(frame_ids, object_name, object) when is_list(frame_ids), do: GenServer.call(__MODULE__, {:store_in_stack, frame_ids |> Enum.reverse(), object_name, object})
+  def get_from_stack(frame_ids, object_name), do: GenServer.call(__MODULE__, {:get_from_stack, frame_ids |> Enum.reverse(), object_name})
+  def store_in_stack(frame_ids, object_name, object) when is_list(frame_ids), do: GenServer.call(__MODULE__, {:store_in_stack, frame_ids, object_name, object})
 
 
   ##########################
@@ -109,19 +109,31 @@ defmodule Pidge.Runtime.SessionState do
 
   # The idea is to store in the deepest stack frame first, if the key exists there
   # Then if not, fall back to less and less deep.  Last resort, store in global
-  def handle_call({:store_in_stack, [deepest|shallower_frame_ids] = _reverse_frame_ids, object_name, object}, from, state) do
+  def handle_call({:store_in_stack, [deepest|_] = reverse_frame_ids, object_name, object}, from, state) do
     variable_key =
       case object_name do
         [x|_] -> x
         _ -> object_name
       end
 
-    # Check to see if this key is in the deepest frame
-    cond do
-      Map.has_key?(state.stack_state, deepest) && Map.has_key?(state.stack_state[deepest], variable_key) ->
-        save_frame_state(deepest, deep_set(state.stack_state[deepest], object_name, object), state)
-      true ->
-        handle_call({:store_in_stack, shallower_frame_ids, object_name, object}, from, state)
+    scan =
+      reverse_frame_ids
+      |> Enum.map(&(Map.has_key?(Map.get(state.stack_state, &1, %{}), variable_key)))
+
+    global = handle_call(:get_global, from, state)
+    case Enum.find_index(scan ++ [global], &(&1 == true)) do
+      nil ->
+        # New variable! If we didn't find the key in any of the frames, store it in the deepest state
+        frame = deep_set(Map.get(state.stack_state, deepest, %{}), object_name, object)
+        {:reply, object, save_frame_state(deepest, frame, state)}
+      frame_idx ->
+        # If we did find the key in a frame, store it in that frame (or global)
+        case Enum.at(reverse_frame_ids, frame_idx, :global) do
+          :global ->
+            handle_call({:store_object, object_name, object}, from, state)
+          frame_id ->
+            handle_call({:store_in_stack_frame, frame_id, object_name, object}, from, state)
+      end
     end
   end
   def handle_call({:store_in_stack, [] = _reverse_frame_ids, object_name, object}, from, state) do

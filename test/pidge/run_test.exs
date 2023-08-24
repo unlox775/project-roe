@@ -51,14 +51,17 @@ defmodule Pidge.RunTest do
       assert {:last} = Run.run(opts, @simple_ast)
 
       {:ok, sessionstate_pid} = SessionState.start_link(session_id)
-      state = SessionState.get()
-      IO.inspect(state, label: "state")
+      global = SessionState.get()
+      # IO.inspect(global, label: "global")
+      stack_state = SessionState.get_stack_state()
+      # IO.inspect(stack_state, label: "stack_state")
       SessionState.stop(sessionstate_pid)
 
+      assert "{\n  \"bots\": [\n    {\n      \"hobby\": \"pizza eating\",\n      \"name\": \"elmer\"\n    },\n    {\n      \"hobby\": \"pizza making\",\n      \"name\": \"wilbur\"\n    }\n  ]\n}" = global["json"]["test"]
       assert [%{
         "hobby" => "pizza eating",
         "name" => "elmer"
-      }| _] = state["bots_copy"]["nested"]["bots"]
+      }| _] = stack_state["foreach-0005[1]"]["bots_copy"]["nested"]["bots"]
     end
   end
 end

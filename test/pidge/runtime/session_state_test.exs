@@ -6,6 +6,8 @@ defmodule Pidge.SessionStateTest do
 
   alias Pidge.Runtime.SessionState
 
+  @example_frame_id "foreach-00005[2]"
+  @example_frame_ids ["block-00018","foreach-00005[2]"]
   @obj_name :product
   @obj_name_str "product"
   @obj_value_simple %{"item" => "book", "author" => "Pliney"}
@@ -13,7 +15,6 @@ defmodule Pidge.SessionStateTest do
 
   describe "get/1 and store_object/3" do
     test "returns the object we stored" do
-      SessionState.start_link("foo")
       SessionState.wipe()
       SessionState.store_object(@obj_name, @obj_value_simple)
       state = SessionState.get()
@@ -50,6 +51,55 @@ defmodule Pidge.SessionStateTest do
       state = SessionState.get()
 
       assert state["new_product"] == @obj_value_simple
+    end
+  end
+
+  describe "get_stack_state/0" do
+    test "returns the stack state" do
+      SessionState.start_link("foo")
+      SessionState.wipe()
+
+      # Assuming initially, the stack is empty
+      assert SessionState.get_stack_state() == %{}
+    end
+  end
+
+  describe "store_in_stack/3 and get_from_stack_frame/2" do
+    setup do
+      frame_id = @example_frame_id
+      SessionState.wipe()
+      SessionState.store_in_stack([frame_id], @obj_name, @obj_value_simple)
+      [frame_id: frame_id]
+    end
+
+    test "stores in the specified stack frame and retrieves from it", %{frame_id: frame_id} do
+      assert SessionState.get_from_stack_frame(frame_id, @obj_name) == @obj_value_simple
+    end
+
+    test "doesn't store in global state" do
+      stack_state = SessionState.get_stack_state()
+      assert Map.has_key?(stack_state[@example_frame_id], @obj_name_str)
+
+      state = SessionState.get()
+      refute Map.has_key?(state, @obj_name_str)
+    end
+  end
+
+  describe "get_from_stack/2" do
+    setup do
+      frame_ids = @example_frame_ids
+      SessionState.wipe()
+      SessionState.store_in_stack(frame_ids, @obj_name, @obj_value_simple)
+      [frame_ids: frame_ids]
+    end
+
+    test "retrieves from the topmost frame first, then looks downward", %{frame_ids: frame_ids} do
+      # Storing another object in the deeper frame
+      different_value = %{"item" => "notebook", "author" => "Scribe"}
+      SessionState.store_in_stack([Enum.at(frame_ids, 1)], @obj_name, different_value)
+
+      # Retrieving from the stack should give the topmost frame's value (from frame1 in this case)
+      assert SessionState.get_from_stack(frame_ids, @obj_name_str) == different_value
     end
   end
 end

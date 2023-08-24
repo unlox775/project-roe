@@ -67,9 +67,9 @@ defmodule Pidge.Runtime.CallStack do
   def merge_into_variable(clone_from_object_name, merge_into_object_name) do
     clone_from_object = get_variable(clone_from_object_name)
     merged_object = Map.merge(get_variable(merge_into_object_name, %{}), clone_from_object)
-    set_variable(merge_into_object_name, clone_from_object)
+    set_variable(merge_into_object_name, merged_object)
 
-    clone_from_object
+    merged_object
   end
 
 
