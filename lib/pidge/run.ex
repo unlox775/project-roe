@@ -383,17 +383,18 @@ end
 
   def if(_pidge_ast, %{params: %{expression: expression_ast, sub_pidge_ast: sub_pidge_ast}} = if_step, _ast_index) do
     # Generate an AST loading the state in and evaluating the expression
-    state = CallStack.get_complete_variable_namespace()
-    bug(5, [label: "if expr state", state: state])
-    sets = state |> Enum.map(fn {k,v} ->
-      {:=, [line: 1], [
-        {String.to_atom(k), [line: 1], nil},
-        Code.string_to_quoted!(inspect(v, limit: :infinity))
-        ]}
-    end)
-    expr_ast = {:__block__, [], sets ++ [expression_ast]}
+    # state = CallStack.get_complete_variable_namespace()
+    # bug(5, [label: "if expr state", state: state])
+    # sets = state |> Enum.map(fn {k,v} ->
+    #   {:=, [line: 1], [
+    #     {String.to_atom(k), [line: 1], nil},
+    #     Code.string_to_quoted!(inspect(v, limit: :infinity))
+    #     ]}
+    # end)
+    # expr_ast = {:__block__, [], sets ++ [expression_ast]}
+    expr_ast = {:__block__, [], [expression_ast]}
     # bug(5, [label: "if expr ast", expr_ast: expr_ast])
-    {return, _} = Code.eval_quoted(expr_ast)
+    {return, _} = Code.eval_quoted(expr_ast, [{:CallStack, CallStack}])
 
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
     {sub_step,sub_ast_index} =
@@ -409,7 +410,7 @@ end
     bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
 
     if return do
-      {:ok, _closure_state} = CallStack.enter_closure(%{}, {nil, if_step})
+      CallStack.enter_closure(%{}, {sub_step.seq, nil})
       case execute(sub_pidge_ast, sub_step, sub_ast_index) do
         # execute has told us it finshed the last command in the if block
         {:last} ->
