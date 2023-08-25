@@ -23,6 +23,12 @@ defmodule Pidge.Runtime.RunState do
   def get_meta(), do: GenServer.call(__MODULE__, :get_meta)
   def get_meta_key(key), do: GenServer.call(__MODULE__, {:get_meta_key, key})
 
+  def reset_for_new_run() do
+    no_reset_opts = [:verbosity, :session]
+    get_opts() |> Map.take(no_reset_opts) |> set_opts()
+    set_meta(%{})
+  end
+
   ##########################
   ### Server Callbacks
 

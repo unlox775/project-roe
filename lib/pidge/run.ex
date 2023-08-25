@@ -19,7 +19,7 @@ defmodule Pidge.Run do
 
     with 1 <- 1,
       {:ok, pidge_ast} <- read_ast(),
-      {:halt} = run(opts, pidge_ast)
+      {:halt} <- run(opts, pidge_ast)
     do
       System.halt(0)
     else
@@ -91,22 +91,27 @@ defmodule Pidge.Run do
     {:ok, runstate_pid} = RunState.start_link(opts)
     {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
 
-    return =
-      with 1 <- 1,
-        # Find the step to start at
-        {:ok, last_step, step, index} <- find_step(pidge_ast),
-        # Run post process on last step if needed
-        {:ok} <- post_process(last_step),
-        {:ok} <- execute(pidge_ast, step, index)
-      do
-        # end the state process
-        {:ok}
-      end
+    return = private__run(pidge_ast)
 
     RunState.stop(runstate_pid)
     SessionState.stop(sessionstate_pid)
     return
-end
+  end
+
+  defp private__run(pidge_ast) do
+    RunState.set_opt(:base_pidge_ast, pidge_ast)
+
+    with 1 <- 1,
+      # Find the step to start at
+      {:ok, last_step, step, index} <- find_step(pidge_ast),
+      # Run post process on last step if needed
+      {:ok} <- post_process(last_step),
+      {:ok} <- execute(pidge_ast, step, index)
+    do
+      # end the state process
+      {:ok}
+    end
+  end
 
   def print_help do
     IO.puts("""
@@ -236,13 +241,13 @@ end
       _ ->
         with {:ok, message} <- compile_template(prompt),
               {:ok, response} <- push_to_api_and_wait_for_response(pidge_ast, index, id, conv, message) do
-          {args,human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, id)
+          {opts,args,human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, id)
           input = response["body"]
           bug(3, [human_input_mode: human_input_mode])
           bug(3, [response: response])
           human_input_args =
             case {human_input_mode,response} do
-              {:optional, %{"human_input" => human_input}} -> ["--human-input", human_input]
+              {:optional, %{"human_input" => human_input}} -> [human_input: human_input]
               _ -> human_input_args
             end
           bug(3, [human_input_args: human_input_args])
@@ -254,7 +259,11 @@ end
           # Save the next command to run in release/next_command.txt
           File.write!("release/next_command.exs", inspect(next_command, limit: :infinity))
 
-          run(next_command)
+          base_pidge_ast = RunState.get_opt(:base_pidge_ast)
+          RunState.reset_for_new_run()
+          Enum.each(opts ++ human_input_args, fn {key, value} -> RunState.set_opt(key, value) end)
+          bug(4, [label: "next_command_opts", opts: RunState.get_opts()])
+          private__run(base_pidge_ast)
           System.halt(0)
         else
           error -> {:error, "Error in #{method}: #{inspect(error)}"}
@@ -309,14 +318,14 @@ end
       end
 
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
-    {sub_step,sub_ast_index} =
+    {sub_step, sub_ast_index, last_step} =
       case RunState.get_meta_key(:sub_from_step) do
-        nil -> {Enum.at(sub_pidge_ast,0), 0}
+        nil -> {Enum.at(sub_pidge_ast,0), 0, nil}
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
-            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
-            {:ok, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index}
+            {:ok, last_step, sub_step, sub_ast_index} -> {sub_step, sub_ast_index, last_step}
+            _ -> raise "Error in foreach: could not find step #{inspect(sub_from_step)}"
           end
       end
     bug(2, [label: "foreach #{foreach_step.seq} settings", foreach_loop_index: foreach_loop_index, sub_ast_index: sub_ast_index])
@@ -327,6 +336,9 @@ end
     case enter_foreach_closure(foreach_loop_index, foreach_step) do
       # OK, we are in a closure, and loop vars are loaded, now start executing commands
       {:ok, _closure_state} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+
         bug(3, [label: "foreach #{foreach_step.seq} entered closure"])
         case execute(sub_pidge_ast, sub_step, sub_ast_index) do
           # execute has told us it finshed the last command in the foreach block
@@ -406,7 +418,7 @@ end
           {return, _} = Code.eval_quoted(expr_ast, [])
 
           if return do
-            {Enum.at(sub_pidge_ast,0), 0}
+            {Enum.at(sub_pidge_ast,0), 0, nil}
           else
             {:if_expression_false}
           end
@@ -415,13 +427,16 @@ end
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
-            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
-            {:ok, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index}
+            {:ok, last_step, sub_step, sub_ast_index} -> {sub_step, sub_ast_index, last_step}
+            _ -> raise "Error in if: could not find step #{inspect(sub_from_step)}"
           end
       end
 
     case direction do
-      {sub_step,sub_ast_index} ->
+      {sub_step,sub_ast_index,last_step} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+
         bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
         CallStack.enter_closure(%{}, :if, sub_step.seq, nil)
         case execute(sub_pidge_ast, sub_step, sub_ast_index) do
@@ -467,7 +482,7 @@ end
 
           case matched_case_ast do
             {:no_match} -> {:case_expression_no_match}
-            _ -> {matched_case_ast, Enum.at(matched_case_ast,0), 0, case_expression_index}
+            _ -> {matched_case_ast, Enum.at(matched_case_ast,0), 0, case_expression_index, nil}
           end
 
         # If you are restarting from some step inside our case block, don't re-evaluate the expression
@@ -477,13 +492,16 @@ end
 
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
-            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
-            {:ok, _, sub_step, sub_ast_index} -> {sub_pidge_ast, sub_step, sub_ast_index, case_expression_index}
+            {:ok, last_step, sub_step, sub_ast_index} -> {sub_pidge_ast, sub_step, sub_ast_index, case_expression_index, last_step}
+            _ -> raise "Error in case: could not find step #{inspect(sub_from_step)}"
           end
       end
 
     case direction do
-      {sub_pidge_ast,sub_step,sub_ast_index,case_expression_index} ->
+      {sub_pidge_ast,sub_step,sub_ast_index,case_expression_index, last_step} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+
         bug(2, [label: "case #{case_step.seq} settings", sub_ast_index: sub_ast_index])
         CallStack.enter_closure(%{}, :case, sub_step.seq, case_expression_index)
         case execute(sub_pidge_ast, sub_step, sub_ast_index) do
@@ -511,9 +529,14 @@ end
     function_name: function_name,
     args: args,
     }}, _ast_index) do
-    state = CallStack.get_complete_variable_namespace()
-    evaluated_args = Enum.map(args, &(get_nested_key(state, &1, nil)))
+    evaluated_args = Enum.map(args, fn arg ->
+      case arg do
+        [_|_] -> CallStack.get_variable(arg)
+        _ -> arg
+      end
+    end)
 
+    bug(2, [label: "local_function_call", alias_path: alias_path, function_name: function_name, args: args, evaluated_args: evaluated_args])
     result = LocalFunction.function_call(alias_path, function_name, evaluated_args)
     bug(2, [label: "local_function_call", result: result])
     RunState.set_opt(:input, result)
@@ -522,8 +545,15 @@ end
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id) do
-    {args,human_input_args,_human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id)
+    {_opts,args,_human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id)
     bug(4,[get_next_command_to_run: args])
+    human_input_args =
+      case human_input_mode do
+        :required -> ["--human-input", "your input here"]
+        :optional -> ["--human-input", "-"]
+        _ -> []
+      end
+
     full_args = ["pidge", "run"] ++ args ++ human_input_args
     bug(4,[full_args: full_args])
     full_args
@@ -545,13 +575,14 @@ end
      {human_input_args, human_input_mode} =
       case next_blocking_step(pidge_ast, index+1) do
         {:last} -> {[],:none}
-        {:ok, %{params: %{human_input: _}}} -> {["--human-input","your input here"],:required}
-        {:ok, %{params: %{optional_human_input: _}}} -> {["--human-input","-"],:optional}
+        {:ok, %{params: %{human_input: _}}} -> {[human_input: "your input here"],:required}
+        {:ok, %{params: %{optional_human_input: _}}} -> {[human_input: "-"],:optional}
         _ -> {[],:none}
       end
 
     # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id)}\"#{human_input_args}"
-    {["--from-step", get_from_step(from_id)], human_input_args, human_input_mode}
+    from_step_id = get_from_step(from_id)
+    {[from_step: from_step_id], ["--from-step", from_step_id], human_input_args, human_input_mode}
   end
 
   def get_from_step(from_id) do
@@ -638,7 +669,7 @@ end
       RunState.get_opt(:from_step) ->
         # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
         case Regex.run(~r/^(foreach|case)-(\d+)\[(\d+)\]\.(.+)$/, RunState.get_opt(:from_step)) do
-          ["foreach",seq,foreach_loop_index,sub_from_step] ->
+          [_,"foreach",seq,foreach_loop_index,sub_from_step] ->
             bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the foreach, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the loop
@@ -653,7 +684,7 @@ end
               {:ok, nil, step, index}
             end
 
-          ["case",seq,case_expression_index,sub_from_step] ->
+          [_,"case",seq,case_expression_index,sub_from_step] ->
             bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, case_expression_index: case_expression_index])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the case, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the expression
@@ -668,14 +699,22 @@ end
               {:ok, nil, step, index}
             end
 
-          _ ->
+          no_match ->
+            bug(5, [label: "find_step no_match", no_match: no_match])
+
             # the :id on each pidge entry is the step name
             match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == RunState.get_opt(:from_step) end)
             if match == nil do
               {:error, "Step not found: #{RunState.get_opt(:from_step)}"}
             else
-              {step, index} = match
-              {:ok, step, Enum.at(pidge_ast, index + 1), index + 1}
+              {last_step, index} = match
+              # If this is the last step in the AST, return :last
+              cond do
+                index == length(pidge_ast) - 1 ->
+                  {:last, last_step, nil, nil}
+                true ->
+                  {:ok, last_step, Enum.at(pidge_ast, index + 1), index + 1}
+              end
             end
         end
 
@@ -715,7 +754,7 @@ end
   end
 
   def push_to_api_and_wait_for_response(pidge_ast, index, from_id,conv,message) do
-    {_args,_human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id)
+    {_opts,_args,_human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id)
 
     data = %{ "message" => message, "human_input_mode" => to_string(human_input_mode) }
 
