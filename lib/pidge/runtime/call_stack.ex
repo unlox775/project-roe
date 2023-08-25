@@ -4,8 +4,8 @@ defmodule Pidge.Runtime.CallStack do
 
   import Pidge.Util
 
-  def enter_closure(closure_state, {closure_code_line, loop_iteration}) do
-    closure = {closure_code_line, loop_iteration}
+  def enter_closure(closure_state, block_type, closure_code_line, loop_iteration) do
+    closure = {block_type, closure_code_line, loop_iteration}
     case RunState.get_meta_key(:closure_states) do
       nil -> RunState.set_meta_key(:closure_states, [closure])
       closure_states -> RunState.set_meta_key(:closure_states, closure_states ++ [closure])
@@ -26,10 +26,11 @@ defmodule Pidge.Runtime.CallStack do
     case RunState.get_meta_key(:closure_states) do
       nil -> []
       closure_states ->
-        Enum.map(closure_states, fn {seq, foreach_loop_index} ->
-          case foreach_loop_index do
-            nil -> "block-#{seq}"
-            _ -> "foreach-#{seq}[#{foreach_loop_index}]"
+        Enum.map(closure_states, fn {block_type, seq, iteration_index} ->
+          case block_type do
+            :if -> "block-#{seq}"
+            :foreach -> "foreach-#{seq}[#{iteration_index}]"
+            :case -> "case-#{seq}[#{iteration_index}]"
           end
         end)
     end

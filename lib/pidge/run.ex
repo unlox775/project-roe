@@ -12,7 +12,7 @@ defmodule Pidge.Run do
   # @transit_tmp_dir "/tmp/roe/transit"
   @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case]
 
   def run(args) do
     opts = parse_opts(args)
@@ -279,6 +279,11 @@ end
     {:next}
   end
 
+  def store_simple_value(_, %{params: %{ object_name: object_name, value: value }}, _) do
+    CallStack.set_variable(object_name, value)
+    {:next}
+  end
+
   def clone_object(_, %{params: %{ clone_from_object_name: clone_from_object_name, object_name: object_name }}, _) do
     CallStack.clone_variable(clone_from_object_name, object_name)
     {:next}
@@ -377,29 +382,36 @@ end
         %{}
         |> Map.put(instance_variable_name, Enum.at(list, foreach_loop_index))
         |> Map.put(iter_variable_name, foreach_loop_index)
-      {:ok, CallStack.enter_closure(closure_state, {seq, foreach_loop_index}) }
+      {:ok, CallStack.enter_closure(closure_state, :foreach, seq, foreach_loop_index) }
     end
   end
 
   def if(_pidge_ast, %{params: %{expression: expression_ast, sub_pidge_ast: sub_pidge_ast}} = if_step, _ast_index) do
-    # Generate an AST loading the state in and evaluating the expression
-    # state = CallStack.get_complete_variable_namespace()
-    # bug(5, [label: "if expr state", state: state])
-    # sets = state |> Enum.map(fn {k,v} ->
-    #   {:=, [line: 1], [
-    #     {String.to_atom(k), [line: 1], nil},
-    #     Code.string_to_quoted!(inspect(v, limit: :infinity))
-    #     ]}
-    # end)
-    # expr_ast = {:__block__, [], sets ++ [expression_ast]}
-    expr_ast = {:__block__, [], [expression_ast]}
-    # bug(5, [label: "if expr ast", expr_ast: expr_ast])
-    {return, _} = Code.eval_quoted(expr_ast, [{:CallStack, CallStack}])
-
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
-    {sub_step,sub_ast_index} =
+    direction =
       case RunState.get_meta_key(:sub_from_step) do
-        nil -> {Enum.at(sub_pidge_ast,0), 0}
+        nil ->
+          # Generate an AST loading the state in and evaluating the expression
+          # state = CallStack.get_complete_variable_namespace()
+          # bug(5, [label: "if expr state", state: state])
+          # sets = state |> Enum.map(fn {k,v} ->
+          #   {:=, [line: 1], [
+          #     {String.to_atom(k), [line: 1], nil},
+          #     Code.string_to_quoted!(inspect(v, limit: :infinity))
+          #     ]}
+          # end)
+          # expr_ast = {:__block__, [], sets ++ [expression_ast]}
+          expr_ast = {:__block__, [], [expression_ast]}
+          # bug(5, [label: "if expr ast", expr_ast: expr_ast])
+          {return, _} = Code.eval_quoted(expr_ast, [])
+
+          if return do
+            {Enum.at(sub_pidge_ast,0), 0}
+          else
+            {:if_expression_false}
+          end
+
+        # If you are restarting from some step inside our if block, don't re-evaluate the expression
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
@@ -407,26 +419,90 @@ end
             {:ok, _, sub_step, sub_ast_index} -> {sub_step, sub_ast_index}
           end
       end
-    bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
 
-    if return do
-      CallStack.enter_closure(%{}, {sub_step.seq, nil})
-      case execute(sub_pidge_ast, sub_step, sub_ast_index) do
-        # execute has told us it finshed the last command in the if block
-        {:last} ->
-          CallStack.leave_closure()
-          # So effectively our if function has completely concluded, say Next!
-          {:next}
+    case direction do
+      {sub_step,sub_ast_index} ->
+        bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
+        CallStack.enter_closure(%{}, :if, sub_step.seq, nil)
+        case execute(sub_pidge_ast, sub_step, sub_ast_index) do
+          # execute has told us it finshed the last command in the if block
+          {:last} ->
+            CallStack.leave_closure()
+            # So effectively our if function has completely concluded, say Next!
+            {:next}
 
-        # Otherwise, return whatever it returns as our step return
-        {_, _} = x -> x
+          # Otherwise, return whatever it returns as our step return
+          {_, _} = x -> x
 
-        error ->
-          {:error, "Error in if: #{inspect(error)}"}
+          error ->
+            {:error, "Error in if: #{inspect(error)}"}
+        end
+
+      {:if_expression_false} ->
+        # The expression evaluated to false, so skip the if block
+        {:next}
+    end
+  end
+
+
+  def case(_pidge_ast, %{params: %{expression: expression_ast, cases: cases}} = case_step, _ast_index) do
+
+    # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
+    direction =
+      case RunState.get_meta_key(:sub_from_step) do
+        nil ->
+          expr_ast = {:__block__, [], [expression_ast]}
+          bug(5, [label: "case expr ast", expr_ast: expr_ast])
+          {return, _} = Code.eval_quoted(expr_ast, [])
+
+          {matched_case_ast, case_expression_index} =
+            cases
+            |> Enum.with_index()
+            |> Enum.reduce({:no_match}, fn {case,i}, acc ->
+              case {acc, case.case_expression} do
+                {{:no_match},^return} -> {case.sub_pidge_ast,i}
+                _ -> acc
+              end
+            end)
+
+          case matched_case_ast do
+            {:no_match} -> {:case_expression_no_match}
+            _ -> {matched_case_ast, Enum.at(matched_case_ast,0), 0, case_expression_index}
+          end
+
+        # If you are restarting from some step inside our case block, don't re-evaluate the expression
+        sub_from_step ->
+          case_expression_index = RunState.get_meta_key(:case_expression_index)
+          sub_pidge_ast = Enum.at(cases, case_expression_index)
+
+          RunState.set_opt(:from_step, sub_from_step)
+          case find_step(sub_pidge_ast) do
+            {:last, _, _, _} -> {:next, CallStack.leave_closure()}
+            {:ok, _, sub_step, sub_ast_index} -> {sub_pidge_ast, sub_step, sub_ast_index, case_expression_index}
+          end
       end
-    else
-      # The expression evaluated to false, so skip the if block
-      {:next}
+
+    case direction do
+      {sub_pidge_ast,sub_step,sub_ast_index,case_expression_index} ->
+        bug(2, [label: "case #{case_step.seq} settings", sub_ast_index: sub_ast_index])
+        CallStack.enter_closure(%{}, :case, sub_step.seq, case_expression_index)
+        case execute(sub_pidge_ast, sub_step, sub_ast_index) do
+          # execute has told us it finshed the last command in the case block
+          {:last} ->
+            CallStack.leave_closure()
+            # So effectively our case function has completely concluded, say Next!
+            {:next}
+
+          # Otherwise, return whatever it returns as our step return
+          {_, _} = x -> x
+
+          error ->
+            {:error, "Error in case: #{inspect(error)}"}
+        end
+
+      {:case_expression_no_match} ->
+        # The expression evaluated to false, so skip the case block
+        {:next}
     end
   end
 
@@ -561,8 +637,8 @@ end
 
       RunState.get_opt(:from_step) ->
         # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
-        case Regex.run(~r/^foreach-(\d+)\[(\d+)\]\.(.+)$/, RunState.get_opt(:from_step)) do
-          [_,seq,foreach_loop_index,sub_from_step] ->
+        case Regex.run(~r/^(foreach|case)-(\d+)\[(\d+)\]\.(.+)$/, RunState.get_opt(:from_step)) do
+          ["foreach",seq,foreach_loop_index,sub_from_step] ->
             bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the foreach, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the loop
@@ -571,6 +647,21 @@ end
             RunState.set_meta_key(:foreach_loop_index, String.to_integer(foreach_loop_index))
             if match == nil do
               {:error, "Foreach Step not found: #{RunState.get_opt(:from_step)}"}
+            else
+              {step, index} = match
+              RunState.set_meta_key(:sub_from_step, sub_from_step)
+              {:ok, nil, step, index}
+            end
+
+          ["case",seq,case_expression_index,sub_from_step] ->
+            bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, case_expression_index: case_expression_index])
+            # Get the step with the :seq key that matches
+            # Our goal here: we need to kick the index to the case, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the expression
+            match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
+            RunState.set_meta_key(:sub_from_step, sub_from_step)
+            RunState.set_meta_key(:case_expression_index, String.to_integer(case_expression_index))
+            if match == nil do
+              {:error, "Case Step not found: #{RunState.get_opt(:from_step)}"}
             else
               {step, index} = match
               RunState.set_meta_key(:sub_from_step, sub_from_step)

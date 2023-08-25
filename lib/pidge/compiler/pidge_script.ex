@@ -8,7 +8,12 @@ defmodule Pidge.Compiler.PidgeScript do
     end
   end
   """
-
+  # constant defining what opts are allowed for which functions
+  @allowed_opts %{
+    ai_prompt: [:human_input],
+    ai_pipethru: [:optional_human_input, :loopback_allowed_to],
+    ai_object_extract: [:schema, :partial, :optional_human_input]
+  }
   def compile_source(code) do
     with(
       {:ok, ast } <- Code.string_to_quoted(@pre_code_code_include <> code <> @post_code_code_include),
@@ -41,12 +46,6 @@ defmodule Pidge.Compiler.PidgeScript do
   def parse_ast({:|>, a, b}), do: parse_ast({:__block__, a, b})
   def parse_ast({_, a, _} = line), do: parse_ast({:__block__, a, [line]})
 
-  # constant defining what opts are allowed for which functions
-  @allowed_opts %{
-    ai_prompt: [:human_input],
-    ai_pipethru: [:optional_human_input, :loopback_allowed_to],
-    ai_object_extract: [:schema, :partial, :optional_human_input]
-  }
 
   def parse_command(
     {
@@ -264,7 +263,7 @@ defmodule Pidge.Compiler.PidgeScript do
 
     [%{
       id: nil,
-      method: :foreach,
+      method: :case,
       params: %{
         expression: Expression.compile_expression(expression),
         cases: cases

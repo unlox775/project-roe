@@ -14,6 +14,7 @@ defmodule Pidge.Compiler.Expression do
       {:access, {{:., line, [_|_]}, _line2, []} = access, _} ->
         access_to_callstack_get_variable(line, access) |> IO.inspect(label: "wrap_partial_expression line #{__ENV__.line}")
       {:access, access, line} ->
+        IO.inspect(line, label: "wrap_partial_expression[#{inspect(line)}] line #{__ENV__.line}")
         access_to_callstack_get_variable(line, access) |> IO.inspect(label: "wrap_partial_expression line #{__ENV__.line}")
 
       {:term, term} -> term
@@ -29,14 +30,14 @@ defmodule Pidge.Compiler.Expression do
   def walk_expression({:<= = x, line, [_,_] = ops}, c), do: {x, line, sub_walk_list(ops, c)}
   def walk_expression({:== = x, line, [_,_] = ops}, c), do: {x, line, sub_walk_list(ops, c)}
   def walk_expression({{:.,_line,[Access, :get]} = x,line,[_,_] = ops}, c), do:
-    report_access({x, line, sub_walk_list(ops, c)},c)
+    report_access({x, line, sub_walk_list(ops, c)},c) |> IO.inspect(label: "walk_expression line #{__ENV__.line}")
   def walk_expression({{:., line, [_|_] = ops}, line2, []}, c), do:
-    report_access({{:., line, sub_walk_list(ops, c)}, line2, []},c)
+    report_access({{:., line, sub_walk_list(ops, c)}, line2, []},c) |> IO.inspect(label: "walk_expression line #{__ENV__.line}")
 
   def walk_expression({:! = x, line, [_] = ops}, c), do: {x, line, sub_walk_list(ops, c)}
 
   def walk_expression({x, _line, nil} = var, c) when is_atom(x), do: report_term(var, c)
-  def walk_expression({:.,_,[{y,_,nil},z]} = x, c) when is_atom(y) and is_atom(z), do: report_term(x, c)
+  def walk_expression({:.,line,[{y,_,nil},z]} = x, c) when is_atom(y) and is_atom(z), do: report_access(x, c, line) |> IO.inspect(label: "walk_expression line #{__ENV__.line}")
   def walk_expression(x, c) when is_number(x),                   do: report_term(x, c)
   def walk_expression(x, c) when is_atom(x),                   do: report_term(x, c)
   def walk_expression(""<>_ = x, c),                             do: report_term(x, c)
@@ -44,7 +45,7 @@ defmodule Pidge.Compiler.Expression do
   def walk_expression(fail), do: raise "Unknown expression: #{inspect(fail)}"
 
   def report_term(term, c), do: apply(c, [{:term, term}])
-  def report_access(access, c), do: apply(c, [{:access, access, nil}])
+  def report_access(access, c, line \\ nil), do: apply(c, [{:access, access, line}])
   def sub_walk_list(ops, c), do: Enum.map(ops, fn op -> walk_expression(op, c) end)
 
   def access_to_callstack_get_variable(line, var_name) when is_atom(var_name) do
