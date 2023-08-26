@@ -10,9 +10,9 @@ defmodule Pidge.Run do
   alias Pidge.Run.{ AIObjectExtract, LocalFunction }
 
   # @transit_tmp_dir "/tmp/roe/transit"
-  @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract]
-  @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case]
+  @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract, :ai_codeblock_extract]
+  @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case]
 
   def run(args) do
     opts = parse_opts(args)
@@ -145,7 +145,8 @@ defmodule Pidge.Run do
 
     # AI Object Extract. Take the input and store it as an object
     cond do
-      step.method == :ai_object_extract -> AIObjectExtract.post_process(step)
+      step.method == :ai_object_extract -> AIObjectExtract.object_extract_post_process(step)
+      step.method == :ai_codeblock_extract -> AIObjectExtract.codeblock_extract_post_process(step)
       true -> {:ok}
     end
   end
@@ -282,6 +283,8 @@ defmodule Pidge.Run do
   def ai_pipethru(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
   # behaves the same as ai_prompt, but has post_process
   def ai_object_extract(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
+  # behaves the same as ai_prompt, but has post_process
+  def ai_codeblock_extract(pidge_ast, step, index), do: ai_prompt(pidge_ast, step, index)
 
   def store_object(_, %{params: %{ object_name: object_name }}, _) do
     CallStack.set_variable(object_name, RunState.get_opt(:input))
@@ -613,7 +616,7 @@ defmodule Pidge.Run do
         value -> Map.put(state, to_string(key), value)
       end
     end)
-    bug(2, [label: "compile_template", state: state])
+    bug(5, [label: "compile_template", state: state])
 
     # Read in the template file from /release/prompts
     template = File.read!("release/prompts/#{prompt}.pjt")

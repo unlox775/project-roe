@@ -2,10 +2,8 @@ defmodule Pidge.Run.AIObjectExtract do
 
   alias Pidge.Runtime.RunState
 
-  def post_process(%{params: %{
-      conversation_id: _conversation_id,
+  def object_extract_post_process(%{params: %{
       format: format,
-      prompt: _prompt,
       schema: _schema,
     }}) do
     object =
@@ -57,6 +55,36 @@ defmodule Pidge.Run.AIObjectExtract do
         {:error, _} -> {:cont, :error}
       end
     end)
+  end
+
+
+  def codeblock_extract_post_process(%{params: %{language: language} = params}) do
+    # Run regex, to find all pairs of ~r/```(language)\n(.*)```/m
+    # For each match, run the post_process function for that language
+    matches =
+      ~r/```#{language}\n(.*?)```/s
+      |> Regex.scan(RunState.get_opt(:input)|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}"))
+      |> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
+      |> Enum.map(fn [_,code] -> code end)
+      |> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
+
+    sorted =
+      case Map.get(params, :largest, false)|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}") do
+        true -> Enum.sort_by(matches, &(String.length(&1)), :desc)
+        _ -> matches
+      end
+|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
+    result =
+      case Map.get(params, :all, false)|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}") do
+        true -> sorted |> Enum.map(fn code -> code end)
+        _ -> Enum.at(sorted, -1)
+      end
+      |> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
+
+    bug(2, label: "post code block extract", code: result)
+    RunState.set_opt(:input, result)
+    bug(5, label: "Opts post-extract", object: RunState.get_opts())
+    {:ok}
   end
 
   defp bug(level, stuff_to_debug), do: Pidge.Run.bug(level, stuff_to_debug)

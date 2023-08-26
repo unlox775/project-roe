@@ -12,7 +12,8 @@ defmodule Pidge.Compiler.PidgeScript do
   @allowed_opts %{
     ai_prompt: [:human_input],
     ai_pipethru: [:optional_human_input, :loopback_allowed_to],
-    ai_object_extract: [:schema, :partial, :optional_human_input]
+    ai_object_extract: [:schema, :optional_human_input],
+    ai_codeblock_extract: [:largest, :all, :optional_human_input]
   }
   def compile_source(code) do
     with(
@@ -306,6 +307,17 @@ defmodule Pidge.Compiler.PidgeScript do
             conversation_id: to_string(conversation_id),
             prompt: to_string(prompt),
             format: to_string(format)
+          }, opts, line)
+        }]
+      {:ai_codeblock_extract, [conversation_id, prompt, language, opts]} ->
+        CompileState.push_meta_key(:prompt_files, CompileState.get_scope_key(:prompt_base,"")<>to_string(prompt))
+        [%{
+          id: prompt,
+          method: function_name,
+          params: parse_opts(function_name, %{
+            conversation_id: to_string(conversation_id),
+            prompt: to_string(prompt),
+            language: to_string(language)
           }, opts, line)
         }]
       {_, [conversation_id, prompt]} ->

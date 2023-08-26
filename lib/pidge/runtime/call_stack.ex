@@ -46,7 +46,7 @@ defmodule Pidge.Runtime.CallStack do
       nil -> global
       _ ->
         Enum.reduce(get_stack_address(:list), global, fn frame_id, state ->
-          bug(2, [label: "compile_template", closure_state: Map.get(stack_state, frame_id, %{})])
+          bug(5, [label: "get_complete_variable_namespace", closure_state: Map.get(stack_state, frame_id, %{})])
           Map.merge(state, Map.get(stack_state, frame_id, %{}))
         end)
     end
