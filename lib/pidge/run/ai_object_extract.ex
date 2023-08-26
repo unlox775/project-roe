@@ -73,7 +73,7 @@ defmodule Pidge.Run.AIObjectExtract do
         true -> Enum.sort_by(matches, &(String.length(&1)), :desc)
         _ -> matches
       end
-|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
+    |> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}")
     result =
       case Map.get(params, :all, false)|> IO.inspect(label: "codeblock_extract_post_process line #{__ENV__.line}") do
         true -> sorted |> Enum.map(fn code -> code end)

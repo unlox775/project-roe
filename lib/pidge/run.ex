@@ -262,7 +262,7 @@ defmodule Pidge.Run do
 
           base_pidge_ast = RunState.get_opt(:base_pidge_ast)
           RunState.reset_for_new_run()
-          Enum.each(opts ++ human_input_args, fn {key, value} -> RunState.set_opt(key, value) end)
+          Enum.each(opts ++ human_input_args ++ [input: input], fn {key, value} -> RunState.set_opt(key, value) end)
           bug(4, [label: "next_command_opts", opts: RunState.get_opts()])
           private__run(base_pidge_ast)
           System.halt(0)
