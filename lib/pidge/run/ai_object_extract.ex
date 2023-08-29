@@ -4,7 +4,6 @@ defmodule Pidge.Run.AIObjectExtract do
 
   def object_extract_post_process(%{params: %{
       format: format,
-      schema: _schema,
     }}) do
     object =
       case format do

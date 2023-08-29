@@ -53,10 +53,14 @@ defmodule Pidge.Runtime.CallStack do
   end
 
   def get_variable(variable_name, default \\ nil) do
-    case SessionState.get_from_stack(get_stack_address(:list), variable_name) do
-      nil -> default
-      value -> value
-    end
+    return =
+      case SessionState.get_from_stack(get_stack_address(:list), variable_name) do
+        nil -> default
+        value -> value
+      end
+    bug(4, [label: "get_variable", var: variable_name, resulting_value: return])
+
+    return
   end
 
   def set_variable(variable_name, value) do

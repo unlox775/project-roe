@@ -10,8 +10,12 @@ defmodule Pidge.SessionStateTest do
   @example_frame_ids ["block-00018","foreach-00005[2]"]
   @obj_name :product
   @obj_name_str "product"
+  @obj_name_too :other_product
+  @obj_name_too_str "other_product"
   @obj_value_simple %{"item" => "book", "author" => "Pliney"}
   @obj_value_json "{\n  \"author\": \"Pliney\",\n  \"item\": \"book\"\n}"
+  @obj_value_simple_too %{"item" => "statue", "author" => "Athos"}
+  @obj_value_json_too "{\n  \"author\": \"Athos\",\n  \"item\": \"statue\"\n}"
 
   describe "get/1 and store_object/3" do
     test "returns the object we stored" do
@@ -68,12 +72,14 @@ defmodule Pidge.SessionStateTest do
     setup do
       frame_id = @example_frame_id
       SessionState.wipe()
-      SessionState.store_in_stack([frame_id], @obj_name, @obj_value_simple)
+      SessionState.store_in_stack([], @obj_name_too, @obj_value_simple)
+      SessionState.store_in_stack([frame_id], @obj_name_too, @obj_value_simple_too)
+      SessionState.store_in_stack([frame_id], @obj_name, @obj_value_simple_too)
       [frame_id: frame_id]
     end
 
     test "stores in the specified stack frame and retrieves from it", %{frame_id: frame_id} do
-      assert SessionState.get_from_stack_frame(frame_id, @obj_name) == @obj_value_simple
+      assert SessionState.get_from_stack_frame(frame_id, @obj_name) == @obj_value_simple_too
     end
 
     test "doesn't store in global state" do
@@ -82,6 +88,15 @@ defmodule Pidge.SessionStateTest do
 
       state = SessionState.get()
       refute Map.has_key?(state, @obj_name_str)
+    end
+
+    test "updates global state if not declared in closure" do
+      stack_state = SessionState.get_stack_state()
+      refute Map.has_key?(stack_state[@example_frame_id], @obj_name_too_str)
+
+      global = SessionState.get()
+      assert Map.has_key?(global, @obj_name_too_str)
+      assert Map.get(global, @obj_name_too_str) == @obj_value_simple_too
     end
   end
 

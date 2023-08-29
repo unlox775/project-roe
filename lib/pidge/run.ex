@@ -10,9 +10,9 @@ defmodule Pidge.Run do
   alias Pidge.Run.{ AIObjectExtract, LocalFunction }
 
   # @transit_tmp_dir "/tmp/roe/transit"
-  @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract, :ai_codeblock_extract]
+  @input_required_methods [:ai_pipethru, :store_object, :ai_object_extract, :ai_codeblock_extract, :pipe_from_input]
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract]
-  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case]
+  @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case, :pipe_from_human_input, :pipe_from_input]
 
   def run(args) do
     opts = parse_opts(args)
@@ -306,6 +306,16 @@ defmodule Pidge.Run do
     {:next}
   end
 
+  def pipe_from_human_input(_, %{params: %{ human_input: true }}, _) do
+    RunState.set_opt(:input, RunState.get_opt(:human_input))
+    {:next}
+  end
+
+  # The purposed of this function is that it requires input
+  def pipe_from_input(_, _, _) do
+    {:next}
+  end
+
   def merge_into_object(_, %{params: %{ object_name: merge_into_object_name, clone_from_object_name: clone_from_object_name }}, _) do
     CallStack.merge_into_variable(clone_from_object_name, merge_into_object_name)
     {:next}
@@ -419,6 +429,7 @@ defmodule Pidge.Run do
           expr_ast = {:__block__, [], [expression_ast]}
           # bug(5, [label: "if expr ast", expr_ast: expr_ast])
           {return, _} = Code.eval_quoted(expr_ast, [])
+          bug(2, [label: "if expr return", return: return])
 
           if return do
             {Enum.at(sub_pidge_ast,0), 0, nil}

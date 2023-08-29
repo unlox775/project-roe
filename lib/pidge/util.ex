@@ -10,7 +10,13 @@ defmodule Pidge.Util do
   def get_nested_key(state, [key|tail], default) do
     case is_map(state) && Map.has_key?(state, key) do
       true -> get_nested_key(Map.get(state, key), tail, default)
-      false -> default
+      false ->
+        case {state, key, tail} do
+          {x,"length",[]} when is_list(x) -> Enum.count(x)
+          {x,idx,_} when is_list(x) and is_integer(idx) ->
+            get_nested_key(Enum.at(state, idx), tail, default)
+          _ -> default
+        end
     end
   end
 

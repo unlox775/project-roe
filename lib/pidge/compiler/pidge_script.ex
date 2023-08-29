@@ -12,8 +12,8 @@ defmodule Pidge.Compiler.PidgeScript do
   @allowed_opts %{
     ai_prompt: [:human_input],
     ai_pipethru: [:optional_human_input, :loopback_allowed_to],
-    ai_object_extract: [:schema, :optional_human_input],
-    ai_codeblock_extract: [:largest, :all, :optional_human_input]
+    ai_object_extract: [:schema, :human_input, :optional_human_input],
+    ai_codeblock_extract: [:largest, :all, :human_input, :optional_human_input]
   }
   def compile_source(code) do
     with(
@@ -277,6 +277,22 @@ defmodule Pidge.Compiler.PidgeScript do
       id: nil,
       method: :continue,
       params: %{}
+    }]
+  end
+
+  def parse_command({:input, _, _}) do
+    [%{
+      id: nil,
+      method: :pipe_from_input,
+      params: %{}
+    }]
+  end
+
+  def parse_command({:human_input, _line, nil}) do
+    [%{
+      id: nil,
+      method: :pipe_from_human_input,
+      params: %{human_input: true}
     }]
   end
 
