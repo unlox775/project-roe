@@ -116,7 +116,6 @@ defmodule Pidge.Runtime.SessionState do
         _ -> object_name
       end
       |> to_string()
-      |> IO.inspect(label: "VARIABLE KEY")
 
     scan =
       reverse_frame_ids
@@ -124,7 +123,7 @@ defmodule Pidge.Runtime.SessionState do
 
     {:reply, global, _} = handle_call(:get_global, from, state)
     global_has_key = Map.has_key?(global, variable_key)
-    case Enum.find_index(scan ++ [global_has_key] |> IO.inspect(label: "SCAN"), &(&1 == true)) do
+    case Enum.find_index(scan ++ [global_has_key], &(&1 == true)) do
       nil ->
         # New variable! If we didn't find the key in any of the frames, store it in the deepest state
         frame = update_namespace_key(Map.get(state.stack_state, deepest, %{}), object_name, object)

@@ -2,7 +2,7 @@ defmodule Pidge.WebClient.Socket do
   use WebSockex
 
   @url "wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket"
-  @heartbeat_interval 30_000  # 30 seconds
+  @heartbeat_interval 10_000  # 10 seconds
 
   def send_and_watch_for_response(%{message: message, channel: channel, ref: ref} = state) do
     state =

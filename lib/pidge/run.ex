@@ -331,49 +331,61 @@ defmodule Pidge.Run do
       end
 
     # If we are restarting from the middle of our loop, find the command number mid-AST to start from (signalled by prior find_step)
-    {sub_step, sub_ast_index, last_step} =
+    direction =
       case RunState.get_meta_key(:sub_from_step) do
         nil -> {Enum.at(sub_pidge_ast,0), 0, nil}
         sub_from_step ->
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
             {:ok, last_step, sub_step, sub_ast_index} -> {sub_step, sub_ast_index, last_step}
+            {:last, last_step, _, _} -> {nil, nil, last_step}
             _ -> raise "Error in foreach: could not find step #{inspect(sub_from_step)}"
           end
       end
-    bug(2, [label: "foreach #{foreach_step.seq} settings", foreach_loop_index: foreach_loop_index, sub_ast_index: sub_ast_index])
 
 
-    # Enter a closure, to keep sub-variables private
-    #  This also reads in the current loop item into scope
-    case enter_foreach_closure(foreach_loop_index, foreach_step) do
-      # OK, we are in a closure, and loop vars are loaded, now start executing commands
-      {:ok, _closure_state} ->
+    case direction do
+      {nil, nil, last_step} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+        {:next}
+
+      {sub_step, sub_ast_index, last_step} ->
+        bug(2, [label: "foreach #{foreach_step.seq} settings", foreach_loop_index: foreach_loop_index, sub_ast_index: sub_ast_index])
+
         # Run post_process on the last_step if it is not nil
         post_process(last_step)
 
-        bug(3, [label: "foreach #{foreach_step.seq} entered closure"])
-        case execute(sub_pidge_ast, sub_step, sub_ast_index) do
-          # execute has told us it finshed the last command in the foreach block
+        # Enter a closure, to keep sub-variables private
+        #  This also reads in the current loop item into scope
+        case enter_foreach_closure(foreach_loop_index, foreach_step) do
+          # OK, we are in a closure, and loop vars are loaded, now start executing commands
+          {:ok, _closure_state} ->
+            bug(3, [label: "foreach #{foreach_step.seq} entered closure"])
+            case execute(sub_pidge_ast, sub_step, sub_ast_index) do
+              # execute has told us it finshed the last command in the foreach block
+              {:last} ->
+                # So increment to the next loop item and call it again
+                bug(2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
+                RunState.set_meta_key(:foreach_loop_index, foreach_loop_index + 1)
+                RunState.delete_meta_key(:sub_from_step)
+                CallStack.leave_closure()
+                foreach(pidge_ast, foreach_step, ast_index)
+
+              # Otherwise, return whatever it returns as our step return
+              {_, _} = x -> x
+
+              error ->
+                {:error, "Error in foreach: #{inspect(error)}"}
+            end
+
+          # We have finished looping thru the foreach'd list
           {:last} ->
-            # So increment to the next loop item and call it again
-            bug(2, [label: "foreach #{foreach_step.seq}", moving_to_next_index: foreach_loop_index + 1])
-            RunState.set_meta_key(:foreach_loop_index, foreach_loop_index + 1)
-            CallStack.leave_closure()
-            foreach(pidge_ast, foreach_step, ast_index)
-
-          # Otherwise, return whatever it returns as our step return
-          {_, _} = x -> x
-
-          error ->
-            {:error, "Error in foreach: #{inspect(error)}"}
+            bug(3, [label: "foreach #{foreach_step.seq} ended"])
+            RunState.delete_meta_key(:sub_from_step)
+            # So effectively our foreach function has completely concluded, say Next!
+            {:next}
         end
-
-      # We have finished looping thru the foreach'd list
-      {:last} ->
-        bug(3, [label: "foreach #{foreach_step.seq} ended"])
-        # So effectively our foreach function has completely concluded, say Next!
-        {:next}
     end
   end
 
@@ -385,7 +397,7 @@ defmodule Pidge.Run do
     # Get the list to iterate on
     state = CallStack.get_complete_variable_namespace()
     list = state |> get_nested_key(loop_on_variable_name, nil)
-    bug(2, label: "foreach looped list", list: list)
+    bug(5, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
 
     # If no list then raise
@@ -442,20 +454,27 @@ defmodule Pidge.Run do
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
             {:ok, last_step, sub_step, sub_ast_index} -> {sub_step, sub_ast_index, last_step}
-            _ -> raise "Error in if: could not find step #{inspect(sub_from_step)}"
+            {:last, last_step, _, _} -> {nil, nil, last_step}
+            error -> raise "Error in if: could not find step #{inspect(sub_from_step)}: #{inspect(error)}"
           end
       end
 
     case direction do
+      {nil,nil,last_step} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+        {:next}
+
       {sub_step,sub_ast_index,last_step} ->
         # Run post_process on the last_step if it is not nil
         post_process(last_step)
 
         bug(2, [label: "if #{if_step.seq} settings", sub_ast_index: sub_ast_index])
-        CallStack.enter_closure(%{}, :if, sub_step.seq, nil)
+        CallStack.enter_closure(%{}, :if, if_step.seq, nil)
         case execute(sub_pidge_ast, sub_step, sub_ast_index) do
           # execute has told us it finshed the last command in the if block
           {:last} ->
+            RunState.delete_meta_key(:sub_from_step)
             CallStack.leave_closure()
             # So effectively our if function has completely concluded, say Next!
             {:next}
@@ -507,11 +526,17 @@ defmodule Pidge.Run do
           RunState.set_opt(:from_step, sub_from_step)
           case find_step(sub_pidge_ast) do
             {:ok, last_step, sub_step, sub_ast_index} -> {sub_pidge_ast, sub_step, sub_ast_index, case_expression_index, last_step}
+            {:last, last_step, _, _} -> {nil, nil, case_expression_index, last_step}
             _ -> raise "Error in case: could not find step #{inspect(sub_from_step)}"
           end
       end
 
     case direction do
+      {nil,nil,_,last_step} ->
+        # Run post_process on the last_step if it is not nil
+        post_process(last_step)
+        {:next}
+
       {sub_pidge_ast,sub_step,sub_ast_index,case_expression_index, last_step} ->
         # Run post_process on the last_step if it is not nil
         post_process(last_step)
@@ -521,6 +546,7 @@ defmodule Pidge.Run do
         case execute(sub_pidge_ast, sub_step, sub_ast_index) do
           # execute has told us it finshed the last command in the case block
           {:last} ->
+            RunState.delete_meta_key(:sub_from_step)
             CallStack.leave_closure()
             # So effectively our case function has completely concluded, say Next!
             {:next}
@@ -559,6 +585,8 @@ defmodule Pidge.Run do
   end
 
   def get_next_command_to_run(pidge_ast, index, from_id) do
+    bug(4,["get_next_command_to_run[INPUT]": [index, from_id]])
+
     {_opts,args,_human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, from_id)
     bug(4,[get_next_command_to_run: args])
     human_input_args =
@@ -587,7 +615,7 @@ defmodule Pidge.Run do
   def get_next_command_args_to_run(pidge_ast, index, from_id) do
      # If the next blocking step has human_input or optional_human_input, add a human-input flag
      {human_input_args, human_input_mode} =
-      case next_blocking_step(pidge_ast, index+1) do
+      case next_blocking_step(pidge_ast, index+1) |> IO.inspect(label: "next_blocking_step output") do
         {:last} -> {[],:none}
         {:ok, %{params: %{human_input: _}}} -> {[human_input: "your input here"],:required}
         {:ok, %{params: %{optional_human_input: _}}} -> {[human_input: "-"],:optional}
@@ -682,9 +710,9 @@ defmodule Pidge.Run do
 
       RunState.get_opt(:from_step) ->
         # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
-        case Regex.run(~r/^(foreach|case)-(\d+)\[(\d+)\]\.(.+)$/, RunState.get_opt(:from_step)) do
+        case Regex.run(~r/^(foreach|case|block)-(\d+)(?:\[(\d+)\])?\.(.+)$/, RunState.get_opt(:from_step)) do
           [_,"foreach",seq,foreach_loop_index,sub_from_step] ->
-            bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
+            bug(4, [label: "find_step[foreach]", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the foreach, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the loop
             match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
@@ -699,7 +727,7 @@ defmodule Pidge.Run do
             end
 
           [_,"case",seq,case_expression_index,sub_from_step] ->
-            bug(4, [label: "find_step", sub_from_step: sub_from_step, seq: seq, case_expression_index: case_expression_index])
+            bug(4, [label: "find_step[case]", sub_from_step: sub_from_step, seq: seq, case_expression_index: case_expression_index])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the case, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the expression
             match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
@@ -710,6 +738,20 @@ defmodule Pidge.Run do
             else
               {step, index} = match
               RunState.set_meta_key(:sub_from_step, sub_from_step)
+              {:ok, nil, step, index}
+            end
+
+          [_,"block",seq,_,sub_from_step] ->
+            bug(4, [label: "find_step[block]", sub_from_step: sub_from_step, seq: seq])
+            # Get the step with the :seq key that matches
+            # Our goal here: we need to kick the index to the block, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the expression
+            match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq)) |> IO.inspect(label: "match")
+            RunState.set_meta_key(:sub_from_step, sub_from_step)
+            if match == nil do
+              {:error, "If block Step not found: #{RunState.get_opt(:from_step)}"} |> IO.inspect(label: "error")
+            else
+              {step, index} = match
+              RunState.set_meta_key(:sub_from_step, sub_from_step |> IO.inspect(label: "sub_from_step"))
               {:ok, nil, step, index}
             end
 
@@ -740,6 +782,8 @@ defmodule Pidge.Run do
     # If the method of the current ste is in @blocking_methods, return this step
     step =
       cond do
+        Enum.at(pidge_ast, index) == nil ->
+          :last
         Enum.member?(@blocking_methods, Enum.at(pidge_ast, index).method) ->
           Enum.at(pidge_ast, index)
         Enum.at(pidge_ast, index + 1) == nil ->

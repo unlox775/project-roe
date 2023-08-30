@@ -15,7 +15,7 @@ defmodule Pidge.SessionStateTest do
   @obj_value_simple %{"item" => "book", "author" => "Pliney"}
   @obj_value_json "{\n  \"author\": \"Pliney\",\n  \"item\": \"book\"\n}"
   @obj_value_simple_too %{"item" => "statue", "author" => "Athos"}
-  @obj_value_json_too "{\n  \"author\": \"Athos\",\n  \"item\": \"statue\"\n}"
+  # @obj_value_json_too "{\n  \"author\": \"Athos\",\n  \"item\": \"statue\"\n}"
 
   describe "get/1 and store_object/3" do
     test "returns the object we stored" do

@@ -266,7 +266,7 @@
                 console.log('Read from clipboard:', content);
                 callback(content);
             }
-        }) }, 1000)
+        }) }, 2000)
     };
 
     // Trigger the "Copy Last Message" routine, and then send the payload back to the server
@@ -283,18 +283,21 @@
     }
     const sendLastMessageWithHumanInput = () => {
         removeSubmitButtons();
-        readLastMessage((content) => {
-            // Prompt the user to paste in a multi-line message
-            let human_input = prompt("Please paste in your multi-line message here:");
 
-            sendWebSocketMessage({
-                body: content,
-                human_input: human_input
-            });
-        });
+        // Prompt the user to paste in a multi-line message
+        let human_input = prompt("Please paste in your message here:");
         setTimeout(() => {
-            addSubmitButton('Reset','90%', resetButtons)
-        }, 1500)
+            readLastMessage((content) => {
+
+                sendWebSocketMessage({
+                    body: content,
+                    human_input: human_input
+                });
+            });
+            setTimeout(() => {
+                addSubmitButton('Reset','90%', resetButtons)
+            }, 1500)
+        }, 500)
     }
        
     return init();
