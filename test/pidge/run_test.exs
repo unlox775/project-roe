@@ -52,10 +52,13 @@ defmodule Pidge.RunTest do
     {:ok, compilestate_pid} = CompileState.start_link(%{})
     result = case Keyword.get(opts, :quiet, true) do
       true ->
-        capture_io(fn ->
+        out = capture_io(fn ->
           send(self(), {:compile_ast, PidgeScript.compile_source(code)})
         end)
         receive do
+          {:compile_ast, {:ok, _} = result} ->
+            IO.puts(out)
+            result
           {:compile_ast, result} -> result
         end
       false -> PidgeScript.compile_source(code)
