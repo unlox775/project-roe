@@ -1,20 +1,13 @@
 defmodule Pidge.RunTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureIO
 
   alias Pidge.Run
+  alias Pidge.Compiler.{CompileState,PidgeScript}
   alias Pidge.Runtime.SessionState
 
   @step_name "elmer/read_json_example"
-  @simple_ast [
-    %{id: nil, seq: "00001", params: %{conversation_id: :elmer}, method: :context_create_conversation},
-    %{id: nil, seq: "00002", params: %{conversation_id: :wilbur}, method: :context_create_conversation},
-    %{id: @step_name, seq: "00003", params: %{format: "json", prompt: @step_name, conversation_id: "elmer", schema: {:character, [line: 28], nil}}, method: :ai_object_extract},
-    %{id: nil, seq: "0004", params: %{object_name: "test"}, method: :store_object},
-    %{id: nil, seq: "0005", method: :foreach, params: %{instance_variable_name: "bot", iter_variable_name: "i", loop_on_variable_name: ["test","bots"], sub_pidge_ast: [
-      %{id: nil, seq: "00001", params: %{object_name: ["bots_copy","nested"]}, method: :store_object},
-      %{id: nil, seq: "00002", params: %{object_name: "bot_clone", clone_from_object_name: "bot"}, method: :clone_object}
-    ]}}
-  ]
   @json_input """
   This is some pre-amble text.  Laa dee dah...
 
@@ -36,32 +29,63 @@ defmodule Pidge.RunTest do
 
   describe "run/2" do
     test "run test" do
-      session_id = "test/run_test"
+      code = """
+      Context.add_conversation(:elmer)
+      test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
+      foreach(test.bots, fn {bot,i} ->
+        bots_copy.nested.bots = bot
+      end)
+      """
 
-      {:ok, sessionstate_pid} = SessionState.start_link(session_id)
-      SessionState.wipe()
-      SessionState.stop(sessionstate_pid)
-
-      opts = %{
-        from_step: @step_name,
-        verbosity: -5,
-        input: @json_input,
-        session: session_id
-      }
-      assert {:last} = Run.run(opts, @simple_ast)
-
-      {:ok, sessionstate_pid} = SessionState.start_link(session_id)
-      global = SessionState.get()
-      # IO.inspect(global, label: "global")
-      stack_state = SessionState.get_stack_state()
-      # IO.inspect(stack_state, label: "stack_state")
-      SessionState.stop(sessionstate_pid)
+      {:ok, ast} = compile_ast(code, quiet: false)
+      {:ok, {:last}, global, stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -5)
 
       assert "{\n  \"bots\": [\n    {\n      \"hobby\": \"pizza eating\",\n      \"name\": \"elmer\"\n    },\n    {\n      \"hobby\": \"pizza making\",\n      \"name\": \"wilbur\"\n    }\n  ]\n}" = global["json"]["test"]
-      assert [%{
-        "hobby" => "pizza eating",
-        "name" => "elmer"
-      }| _] = stack_state["foreach-0005[1]"]["bots_copy"]["nested"]["bots"]
+      assert %{
+        "hobby" => "pizza making",
+        "name" => "wilbur"
+      } = stack_state["foreach-00004[1]"]["bots_copy"]["nested"]["bots"]
     end
+  end
+
+  def compile_ast(code, opts \\ []) do
+    {:ok, compilestate_pid} = CompileState.start_link(%{})
+    result = case Keyword.get(opts, :quiet, true) do
+      true ->
+        capture_io(fn ->
+          send(self(), {:compile_ast, PidgeScript.compile_source(code)})
+        end)
+        receive do
+          {:compile_ast, result} -> result
+        end
+      false -> PidgeScript.compile_source(code)
+    end
+    CompileState.stop(compilestate_pid)
+    result
+  end
+
+  def run_ast(ast, from_step, input, opts \\ []) do
+    session_id = "test/run_test"
+
+    {:ok, sessionstate_pid} = SessionState.start_link(session_id)
+    SessionState.wipe()
+    SessionState.stop(sessionstate_pid)
+
+    opts = %{
+      from_step: from_step,
+      verbosity: Keyword.get(opts, :verbosity, -5),
+      input: input,
+      session: session_id
+    }
+    run_result = Run.run(opts, ast)
+
+    {:ok, sessionstate_pid} = SessionState.start_link(session_id)
+    global = SessionState.get()
+    # IO.inspect(global, label: "global")
+    stack_state = SessionState.get_stack_state()
+    # IO.inspect(stack_state, label: "stack_state")
+    SessionState.stop(sessionstate_pid)
+
+    {:ok, run_result, global, stack_state}
   end
 end
