@@ -13,38 +13,58 @@ defmodule Pidge.RunTest do
 
   <pre>
   {
-    "bots": [
+    "kids": [
       {
         "name": "elmer",
-        "hobby": "pizza eating"
+        "hobby": "pizza eating",
+        "age": 12
       },
       {
         "name": "wilbur",
-        "hobby": "pizza making"
+        "hobby": "pizza making",
+        "age": 14
       }
     ]
   }
   </pre>
-"""
+  """
 
   describe "run/2" do
-    test "run test" do
+    test "it handles a simple, but general case" do
       code = """
-      Context.add_conversation(:elmer)
-      test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
-      foreach(test.bots, fn {bot,i} ->
-        bots_copy.nested.bots = bot
-      end)
+        Context.add_conversation(:elmer)
+        test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
+        foreach(test.kids, fn {kid,i} ->
+          kids_copy.nested.kids = kid
+        end)
+      """
+
+      {:ok, ast} = compile_ast(code, quiet: true)
+      {:ok, {:last}, global, stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -5)
+
+      {:ok, test} = Jason.decode(global["json"]["test"], keys: :atoms)
+      [kid|_] = test.kids
+      assert kid.name == "elmer"
+      assert stack_state["foreach-00004[1]"]["kids_copy"]["nested"]["kids"]["hobby"] == "pizza making"
+    end
+
+    test "various assignment_operators" do
+      code = """
+        test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
+        george = test.kids[0]
+        # george.name = "george"
+        # george.age = 13
+        # george.hobby = test.kids[1].hobby
+        test.kids <~ george
       """
 
       {:ok, ast} = compile_ast(code, quiet: false)
-      {:ok, {:last}, global, stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -5)
+      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: 3)
+      IO.inspect(global, label: "global")
 
-      assert "{\n  \"bots\": [\n    {\n      \"hobby\": \"pizza eating\",\n      \"name\": \"elmer\"\n    },\n    {\n      \"hobby\": \"pizza making\",\n      \"name\": \"wilbur\"\n    }\n  ]\n}" = global["json"]["test"]
-      assert %{
-        "hobby" => "pizza making",
-        "name" => "wilbur"
-      } = stack_state["foreach-00004[1]"]["bots_copy"]["nested"]["bots"]
+      {:ok, test} = Jason.decode(global["json"]["test"], keys: :atoms)
+      george = Enum.at(test.kids,2)
+      assert george.name == "george"
     end
   end
 
@@ -56,10 +76,11 @@ defmodule Pidge.RunTest do
           send(self(), {:compile_ast, PidgeScript.compile_source(code)})
         end)
         receive do
-          {:compile_ast, {:ok, _} = result} ->
+          {:compile_ast, {:ok, _} = result} -> result
+          {:compile_ast, result} ->
+            IO.puts("Compile failed [#{inspect(result)}], output:")
             IO.puts(out)
             result
-          {:compile_ast, result} -> result
         end
       false -> PidgeScript.compile_source(code)
     end

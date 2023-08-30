@@ -1,8 +1,26 @@
 defmodule Pidge.Util do
+
+  @line_trace false
+  defmacro trace(value, opts \\ []) do
+    if @line_trace do
+      quote do
+        IO.inspect(unquote(value), label: Keyword.get(unquote(opts), :label, to_string(elem(__ENV__.function,0)))<>" at #{__ENV__.file}:#{__ENV__.line}")
+      end
+    else
+      quote do
+        unquote(value)
+      end
+    end
+  end
+
   def make_list_of_strings([]), do: []
   def make_list_of_strings([_ | _] = keys_list), do:
     Enum.map(keys_list, &to_string/1)
   def make_list_of_strings(key), do: make_list_of_strings([key])
+
+  def make_list([]), do: []
+  def make_list([_ | _] = keys_list), do: keys_list
+  def make_list(key), do: make_list([key])
 
   def get_nested_key(state, [], default) do
     if state == nil, do: default, else: state
@@ -11,6 +29,7 @@ defmodule Pidge.Util do
     case is_map(state) && Map.has_key?(state, key) do
       true -> get_nested_key(Map.get(state, key), tail, default)
       false ->
+        trace({state, key, tail}, label: "get_nested_key")
         case {state, key, tail} do
           {x,"length",[]} when is_list(x) -> Enum.count(x)
           {x,idx,_} when is_list(x) and is_integer(idx) ->

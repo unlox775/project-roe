@@ -3,11 +3,14 @@ defmodule Pidge.Compiler.PidgeScript do
   alias Pidge.Compiler.{CompileState, Expression}
   alias Pidge.Compiler.PidgeScript.Validate
 
+  import Pidge.Util
+
   @pre_code_code_include "defmodule Pidge do; def a <~ b, do: max(a, b); def pidge do ;"
   @post_code_code_include """
     end
   end
   """
+
   # constant defining what opts are allowed for which functions
   @allowed_opts %{
     ai_prompt: [:human_input],
@@ -364,8 +367,7 @@ defmodule Pidge.Compiler.PidgeScript do
     collapse_dottree(a, acc) ++ [to_string(key)]
   end
   def collapse_dottree({{:., _, _} = dot, _, []}, acc, _flag) do
-    IO.inspect(__ENV__.line, label: "collapse_dottreee")
-    collapse_dottree(dot, acc)
+    (collapse_dottree(dot |> trace(), []) |> trace()) ++ acc
   end
   def collapse_dottree(
     [
@@ -373,7 +375,7 @@ defmodule Pidge.Compiler.PidgeScript do
       {var_key, _line, _}
     ], acc, _flag) do
       IO.inspect(__ENV__.line, label: "collapse_dottreee")
-    case var_key do
+    case var_key |> trace() do
       atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc)
       _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
     end
@@ -392,45 +394,43 @@ defmodule Pidge.Compiler.PidgeScript do
         key_access
       ]
     }, acc, flag) do
-      IO.inspect(__ENV__.line, label: "collapse_dottreee")
-    case {key_access,flag} do
+    case {key_access,flag} |> trace() do
       ### Called from within Expression evaluation
       # a CallStack.get_variable() lookup
       {{{:.,_,[{:__aliases__,_,[:Pidge,:Runtime,:CallStack]},:get_variable]},_,[_]},:expr} = x ->
-        [[dot] ++ [{x}]] ++ acc
+        [[dot |> trace()] ++ [{x}]] ++ acc
       # a key which is an already-dottree-collapsed list
-      {x,:expr} when is_list(x) -> [dot ++[{key_access}]] ++ acc
+      {x,:expr} when is_list(x) -> [dot ++[{key_access |> trace()}]] ++ acc
       # a key who's value comes from a variable like foo[i]
       {{var_key,line,_},:expr} when is_atom(var_key) ->
-        collapse_dottree(dot, [{Expression.wrap_partial_expression({:access, var_key, line}) |> IO.inspect(label: "collapse_dottreee line #{__ENV__.line}")}] ++ acc, :expr)
+        collapse_dottree(dot, [{Expression.wrap_partial_expression({:access, var_key, line}) |> trace()}] ++ acc, :expr)
       # a key who's value is another lookup like foo[stuff.i.j]
       {{var_key,line,_},:expr} ->
-        collapse_dottree(dot, [{collapse_dottree(Expression.wrap_partial_expression({:access, var_key, line}) |> IO.inspect(label: "collapse_dottreee line #{__ENV__.line}"),[])}] ++ acc, :expr)
+        collapse_dottree(dot, [{collapse_dottree(Expression.wrap_partial_expression({:access, var_key, line}) |> trace(),[])}] ++ acc, :expr)
 
       # a key who's value comes from a variable like foo[i]
       {{var_key,_,_},_} when is_atom(var_key) ->
-        collapse_dottree(dot, [{var_key}] ++ acc)
+        collapse_dottree(dot, [{to_string(var_key) |> trace()}] ++ acc)
       # a key who's value is another lookup like foo[stuff.i.j]
       {{var_key,_,_},_} ->
-        collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
+        collapse_dottree(dot, [{collapse_dottree(var_key |> trace(),[])}] ++ acc)
       # literal key like foo[0] or foo["key"]
-      {x,_} when is_integer(x) -> collapse_dottree(dot, [key_access] ++ acc)
-      {x,_} when is_binary(x) -> collapse_dottree(dot, [key_access] ++ acc)
+      {x,_} when is_integer(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc)
+      {x,_} when is_binary(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc)
     end
   end
   def collapse_dottree({{:., _line1, [Access, :get]}, _line2, [dot,""<>_ = string_key]}, acc, _flag) do
-    IO.inspect(__ENV__.line, label: "collapse_dottreee")
-    collapse_dottree(dot, [string_key] ++ acc)
+    collapse_dottree(dot |> trace(), [string_key] ++ acc)
   end
   def collapse_dottree({key, _,nil}, acc, _flag) when is_atom(key) do
-    [to_string(key)] ++ acc
+    ([to_string(key |> trace())] |> trace()) ++ acc
   end
   def collapse_dottree(key, acc, _flag) when is_atom(key) do
-    [to_string(key)] ++ acc
+    [to_string(key |> trace())] ++ acc
   end
-  def collapse_dottree(key, [], _flag) when is_binary(key), do: key
-  def collapse_dottree(key, [], _flag) when is_number(key), do: key
-  def collapse_dottree(key, [], _flag) when is_atom(key), do: key
+  def collapse_dottree(key, [], _flag) when is_binary(key), do: key |> trace()
+  def collapse_dottree(key, [], _flag) when is_number(key), do: key |> trace()
+  def collapse_dottree(key, [], _flag) when is_atom(key), do: key |> trace()
 
   def parse_opts(function_name, params, opts, line) do
     opts = Map.new(opts)

@@ -196,9 +196,11 @@ defmodule Pidge.Runtime.SessionState do
 
   # quick functions for getting string-based nested key lists
   def deep_get(state, key_list, default \\ nil) do
-    get_nested_key(state, make_list_of_strings(key_list), default)
+    get_nested_key(state, make_list(key_list), default)
+    # get_nested_key(state, make_list_of_strings(key_list), default)
   end
   def deep_set(state, key_list, value) do
-    set_nested_key(state, make_list_of_strings(key_list), value)
+    set_nested_key(state, make_list(key_list), value)
+    # set_nested_key(state, make_list_of_strings(key_list), value)
   end
 end

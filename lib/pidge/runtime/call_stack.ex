@@ -76,7 +76,13 @@ defmodule Pidge.Runtime.CallStack do
 
   def merge_into_variable(clone_from_object_name, merge_into_object_name) do
     clone_from_object = get_variable(clone_from_object_name)
-    merged_object = Map.merge(get_variable(merge_into_object_name, %{}), clone_from_object)
+    merge_into_variable = get_variable(merge_into_object_name, %{})
+    merged_object =
+      case merge_into_variable do
+        %{} -> Map.merge(merge_into_variable, clone_from_object)
+        list when is_list(list) -> merge_into_variable ++ [clone_from_object]
+      end
+
     set_variable(merge_into_object_name, merged_object)
 
     merged_object
@@ -85,10 +91,12 @@ defmodule Pidge.Runtime.CallStack do
 
   # quick functions for getting string-based nested key lists
   def deep_get(state, key_list, default \\ nil) do
-    get_nested_key(state, make_list_of_strings(key_list), default)
+    get_nested_key(state, make_list(key_list), default)
+    # get_nested_key(state, make_list_of_strings(key_list), default)
   end
   def deep_set(state, key_list, value) do
-    set_nested_key(state, make_list_of_strings(key_list), value)
+    set_nested_key(state, make_list(key_list), value)
+    # set_nested_key(state, make_list_of_strings(key_list), value)
   end
   defp bug(level, stuff_to_debug), do: Pidge.Run.bug(level, stuff_to_debug)
 end

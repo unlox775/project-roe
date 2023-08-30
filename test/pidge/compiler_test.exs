@@ -113,9 +113,9 @@ defmodule Pidge.CompilerTest do
           seq: "00001"
         },
         %{id: nil, seq: "00002", params: %{object_name: ["bots_copy", "nested"], clone_from_object_name: ["test", "bots"]}, method: :clone_object},
-        %{id: nil, seq: "00003", params: %{object_name: "bot_clone", clone_from_object_name: ["test", {:i}, "bots"]}, method: :clone_object},
+        %{id: nil, seq: "00003", params: %{object_name: "bot_clone", clone_from_object_name: ["test", "bots", {"i"}]}, method: :clone_object},
         %{id: nil, seq: "00004", params: %{object_name: "bot_clone_too", clone_from_object_name: "bot"}, method: :clone_object},
-        %{id: nil, seq: "00005", params: %{clone_from_object_name: ["test", {["sub", "key"]}, "bots"], object_name: "bot_clone"}, method: :clone_object}
+        %{id: nil, seq: "00005", params: %{clone_from_object_name: ["test", "bots", {["sub", "key"]}], object_name: "bot_clone"}, method: :clone_object}
       ]}}
     ]
 
