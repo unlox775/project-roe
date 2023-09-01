@@ -63,7 +63,14 @@ defmodule Pidge.CompilerTest do
                     {
                       :>,
                       [line: 5],
-                      [{:i, [line: 5], nil}, 10]
+                      [
+                        {
+                          {:., [line: 5], [{:__aliases__, [line: 5], [:Pidge, :Runtime, :CallStack]}, :get_variable]},
+                          [line: 5],
+                          [["i"]]
+                        },
+                        10
+                      ]
                     },
                     {
                       :==,
@@ -79,9 +86,11 @@ defmodule Pidge.CompilerTest do
                             ]
                           },
                           [line: 5],
-                          [
-                            [[{{:., [line: 5], [{:__aliases__, [line: 5], [:Pidge, :Runtime, :CallStack]}, :get_variable]}, [line: 5], [["test", "bots"]]}, {{{{:., [line: 5], [{:__aliases__, [line: 5], [:Pidge, :Runtime, :CallStack]}, :get_variable]}, [line: 5], [["sub", "key"]]}, :expr}}]]
-                          ]
+                          [[
+                            "test",
+                            "bots",
+                            {{:., [line: 5], [{:__aliases__, [line: 5], [:Pidge, :Runtime, :CallStack]}, :get_variable]}, [line: 5], [["sub", "key"]]}
+                          ]]
                         },
                         {
                           {

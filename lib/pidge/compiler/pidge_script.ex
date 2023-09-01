@@ -11,6 +11,10 @@ defmodule Pidge.Compiler.PidgeScript do
   end
   """
 
+  @this_dot_that :.
+  @access_dot_get [Access, :get]
+  @callstack_module [:Pidge,:Runtime,:CallStack]
+
   # constant defining what opts are allowed for which functions
   @allowed_opts %{
     ai_prompt: [:human_input],
@@ -54,7 +58,7 @@ defmodule Pidge.Compiler.PidgeScript do
   def parse_command(
     {
       {
-        :.,
+        @this_dot_that,
         _,
         [
           {_,_,[:Context]},
@@ -81,7 +85,7 @@ defmodule Pidge.Compiler.PidgeScript do
   def parse_command(
     {
       {
-        :.,
+        @this_dot_that,
         _,
         [
           {:__aliases__,_,[:Local | alias_path]},
@@ -109,7 +113,7 @@ defmodule Pidge.Compiler.PidgeScript do
   def parse_command(
     {:=, a,
       [
-        {{:., b, [Access, :get]}, _, access_chain},
+        {{@this_dot_that, b, @access_dot_get}, _, access_chain},
         c
       ]
       }
@@ -129,19 +133,19 @@ defmodule Pidge.Compiler.PidgeScript do
       ) do
     assign_name =
       case name do
-        {:., _, _} -> name |> collapse_dottree([])
+        {@this_dot_that, _, _} -> name |> collapse_dottree([])
         [""<>_|_] -> name
         x when is_atom(x) -> to_string(name)
       end
 
     case value do
-      {{:., _line, [{:__aliases__, _, [:Local | _]}, _]}, _, _} ->
+      {{@this_dot_that, _line, [{:__aliases__, _, [:Local | _]}, _]}, _, _} ->
         parse_command(value) ++ [%{
           id: nil,
           method: :store_object,
           params: %{object_name: assign_name}
         }]
-      {{:., _, _}, _, _} ->
+      {{@this_dot_that, _, _}, _, _} ->
         [%{
           id: nil,
           method: :clone_object,
@@ -363,30 +367,29 @@ defmodule Pidge.Compiler.PidgeScript do
   end
 
   def collapse_dottree(a, b, c \\ nil)
-  def collapse_dottree({:., _, [a, key]}, acc, _flag) when is_atom(key) do
-    collapse_dottree(a, acc) ++ [to_string(key)]
+  def collapse_dottree({@this_dot_that, _, [a, key]}, acc, flag) when is_atom(key) do
+    collapse_dottree(a, acc, flag) ++ [to_string(key)]
   end
-  def collapse_dottree({{:., _, _} = dot, _, []}, acc, _flag) do
-    (collapse_dottree(dot |> trace(), []) |> trace()) ++ acc
+  def collapse_dottree({{@this_dot_that, _, _} = dot, _, []}, acc, flag) do
+    (collapse_dottree(dot |> trace(), [], flag) |> trace()) ++ acc
   end
   def collapse_dottree(
     [
       {dot, _, []},
       {var_key, _line, _}
-    ], acc, _flag) do
-      IO.inspect(__ENV__.line, label: "collapse_dottreee")
+    ], acc, flag) do
     case var_key |> trace() do
-      atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc)
-      _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc)
+      atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc, flag)
+      _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc, flag)
     end
   end
-  def collapse_dottree({{:.,_,[{:__aliases__,_,[:Pidge,:Runtime,:CallStack]},:get_variable]},_,[_]} = access, acc, :expr), do: [access] ++ acc
+  def collapse_dottree({{@this_dot_that,_,[{:__aliases__,_,@callstack_module},:get_variable]},_,[_]} = access, acc, :expr), do: [access] ++ acc
   def collapse_dottree(
     {
       {
-        :.,
+        @this_dot_that,
         _line1,
-        [Access, :get]
+        @access_dot_get
       },
       _line2,
       [
@@ -396,31 +399,32 @@ defmodule Pidge.Compiler.PidgeScript do
     }, acc, flag) do
     case {key_access,flag} |> trace() do
       ### Called from within Expression evaluation
-      # a CallStack.get_variable() lookup
-      {{{:.,_,[{:__aliases__,_,[:Pidge,:Runtime,:CallStack]},:get_variable]},_,[_]},:expr} = x ->
-        [[dot |> trace()] ++ [{x}]] ++ acc
+      # if the "that", or the key being accessed is a CallStack.get_variable() lookup
+      #   --> don't modify anything, just let it pass through as-is
+      {{{@this_dot_that,_,[{:__aliases__,_,@callstack_module},:get_variable]},_,[_]} = x,:expr} ->
+        [dot |> trace()] ++ [x] ++ acc
       # a key which is an already-dottree-collapsed list
       {x,:expr} when is_list(x) -> [dot ++[{key_access |> trace()}]] ++ acc
       # a key who's value comes from a variable like foo[i]
       {{var_key,line,_},:expr} when is_atom(var_key) ->
-        collapse_dottree(dot, [{Expression.wrap_partial_expression({:access, var_key, line}) |> trace()}] ++ acc, :expr)
+        collapse_dottree(dot, [Expression.wrap_partial_expression({:access, var_key |> trace(label: "before"), line}) |> trace()] ++ acc, :expr)
       # a key who's value is another lookup like foo[stuff.i.j]
       {{var_key,line,_},:expr} ->
         collapse_dottree(dot, [{collapse_dottree(Expression.wrap_partial_expression({:access, var_key, line}) |> trace(),[])}] ++ acc, :expr)
 
       # a key who's value comes from a variable like foo[i]
       {{var_key,_,_},_} when is_atom(var_key) ->
-        collapse_dottree(dot, [{to_string(var_key) |> trace()}] ++ acc)
+        collapse_dottree(dot, [{to_string(var_key) |> trace()}] ++ acc, flag)
       # a key who's value is another lookup like foo[stuff.i.j]
       {{var_key,_,_},_} ->
-        collapse_dottree(dot, [{collapse_dottree(var_key |> trace(),[])}] ++ acc)
+        collapse_dottree(dot, [{collapse_dottree(var_key |> trace(),[])}] ++ acc, flag)
       # literal key like foo[0] or foo["key"]
-      {x,_} when is_integer(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc)
-      {x,_} when is_binary(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc)
+      {x,_} when is_integer(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc, flag)
+      {x,_} when is_binary(x) -> collapse_dottree(dot, [key_access |> trace()] ++ acc, flag)
     end
   end
-  def collapse_dottree({{:., _line1, [Access, :get]}, _line2, [dot,""<>_ = string_key]}, acc, _flag) do
-    collapse_dottree(dot |> trace(), [string_key] ++ acc)
+  def collapse_dottree({{@this_dot_that, _line1, @access_dot_get}, _line2, [dot,""<>_ = string_key]}, acc, flag) do
+    collapse_dottree(dot |> trace(), [string_key] ++ acc, flag)
   end
   def collapse_dottree({key, _,nil}, acc, _flag) when is_atom(key) do
     ([to_string(key |> trace())] |> trace()) ++ acc
@@ -442,12 +446,12 @@ defmodule Pidge.Compiler.PidgeScript do
     Map.merge(params, opts |> Map.take(@allowed_opts[function_name]))
   end
 
-  def to_method({:., _, [{:__aliases__, _, _}, fun]}) when is_atom(fun), do: Atom.to_string(fun)
+  def to_method({@this_dot_that, _, [{:__aliases__, _, _}, fun]}) when is_atom(fun), do: Atom.to_string(fun)
   def to_method(fun) when is_atom(fun), do: Atom.to_string(fun)
 
   def parse_params(fun, args, params) do
     case fun do
-      {:., _, [{:__aliases__, _, _}, :add_conversation]} ->
+      {@this_dot_that, _, [{:__aliases__, _, _}, :add_conversation]} ->
         {"conversation_id", List.first(params)}
       _ ->
         {

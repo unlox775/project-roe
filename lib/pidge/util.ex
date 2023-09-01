@@ -13,10 +13,15 @@ defmodule Pidge.Util do
     end
   end
 
-  def make_list_of_strings([]), do: []
-  def make_list_of_strings([_ | _] = keys_list), do:
-    Enum.map(keys_list, &to_string/1)
-  def make_list_of_strings(key), do: make_list_of_strings([key])
+  def atoms_to_strings([]), do: []
+  def atoms_to_strings([_ | _] = keys_list), do:
+    Enum.map(keys_list, fn key ->
+      case key do
+        key when is_atom(key) -> to_string(key)
+        _ -> key
+      end
+    end)
+  def atoms_to_strings(key), do: atoms_to_strings([key])
 
   def make_list([]), do: []
   def make_list([_ | _] = keys_list), do: keys_list
@@ -59,10 +64,10 @@ defmodule Pidge.Util do
 end
 
 # defmodule Pidge.Util do
-#   def make_list_of_strings([]), do: []
-#   def make_list_of_strings([_ | _] = keys_list), do:
+#   def atoms_to_strings([]), do: []
+#   def atoms_to_strings([_ | _] = keys_list), do:
 #     Enum.map(keys_list, &to_string/1)
-#   def make_list_of_strings(key), do: make_list_of_strings([key])
+#   def atoms_to_strings(key), do: atoms_to_strings([key])
 
 #   def get_nested_key(obj, [], state), do: obj
 #   def get_nested_key(obj, [key|tail], state) do

@@ -95,7 +95,7 @@ defmodule Pidge.SessionStateTest do
       refute Map.has_key?(stack_state[@example_frame_id], @obj_name_too_str)
 
       global = SessionState.get()
-      assert Map.has_key?(global, @obj_name_too_str)
+      assert %{ @obj_name_too_str => _ } = global
       assert Map.get(global, @obj_name_too_str) == @obj_value_simple_too
     end
   end

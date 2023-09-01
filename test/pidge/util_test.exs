@@ -3,17 +3,17 @@ defmodule Pidge.UtilTest do
 
   alias Pidge.Util
 
-  describe "make_list_of_strings/1" do
+  describe "atoms_to_strings/1" do
     test "converts empty list to empty list" do
-      assert Util.make_list_of_strings([]) == []
+      assert Util.atoms_to_strings([]) == []
     end
 
     test "converts list of different types to list of strings" do
-      assert Util.make_list_of_strings([:a, 1, "string"]) == ["a", "1", "string"]
+      assert Util.atoms_to_strings([:a, 1, "string"]) == ["a", 1, "string"]
     end
 
     test "converts single non-list value to list of strings" do
-      assert Util.make_list_of_strings(:a) == ["a"]
+      assert Util.atoms_to_strings(:a) == ["a"]
     end
   end
 

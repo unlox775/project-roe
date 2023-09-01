@@ -48,24 +48,142 @@ defmodule Pidge.RunTest do
       assert stack_state["foreach-00004[1]"]["kids_copy"]["nested"]["kids"]["hobby"] == "pizza making"
     end
 
-    test "various assignment_operators" do
+    test "various assignment operations" do
       code = """
         test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
         george = test.kids[0]
-        # george.name = "george"
-        # george.age = 13
-        # george.hobby = test.kids[1].hobby
+        george.name = "george"
+        george.age = 13
+        george.hobby = test.kids[1].hobby
+
+        bob = george
+        bob.a.b.c.d.e.f.g = 1
+        george <~ bob
+
         test.kids <~ george
       """
 
       {:ok, ast} = compile_ast(code, quiet: false)
-      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: 3)
-      IO.inspect(global, label: "global")
+      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
 
       {:ok, test} = Jason.decode(global["json"]["test"], keys: :atoms)
       george = Enum.at(test.kids,2)
       assert george.name == "george"
+      assert george.age == 13
+      assert george.hobby == "pizza making"
+      assert george.a.b.c.d.e.f.g == 1
     end
+
+    test "various variable access patterns" do
+      code = """
+        test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
+        a = test["kids"][0].name
+        b = test.nonexistant.b.c.d.e.f.g
+      """
+
+      {:ok, ast} = compile_ast(code, quiet: false)
+      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
+
+      assert global["a"] == "elmer"
+      assert global["b"] == nil
+    end
+
+    test "various basic variable access inside of if expressions" do
+      code = """
+        test = ai_object_extract(:elmer, "elmer/read_json_example", :json, schema: Plot)
+        pass.a = 1
+        fail.z = 1
+        key = "kids"
+        if test do
+          pass.b = 1
+        end
+        if test[kids] do
+          fail.y = 1
+        end
+        if test[key] do
+          pass.c = 1
+        end
+        if test["kids"] do
+          pass.d = 1
+        end
+        if test.kids do
+          pass.e = 1
+        end
+        if test.kids[0] do
+          pass.f = 1
+        end
+        if test.kids[0].name do
+          pass.g = 1
+        end
+        if test.kids[0].name.nonexistant do
+          fail.x = 1
+        end
+
+        global_scope_foo = 0
+        if test["kids"][0].name == "elmer" do
+          pass.h = 1
+          global_scope_foo = 10
+          sub_scope_b = 5
+        end
+        if (test.kids[0].name == "elmer") && (test.kids[1].name == "wilbur") do
+          pass.i = 1
+          if (global_scope_foo == 10) && !sub_scope_b do
+            pass.j = 1
+          end
+        end
+      """
+
+      {:ok, ast} = compile_ast(code, quiet: true)
+      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
+      # IO.inspect(global, label: "global")
+
+      pass_letters = "abcdefgij"
+      # split string into list of chars
+      pass_list = String.graphemes(pass_letters)
+      Enum.each(pass_list, fn letter ->
+        assert %{^letter => 1} = global["pass"]
+      end)
+      assert Map.keys(global["fail"]) == ["z"]
+    end
+
+    test "various if expression formats and operators" do
+      code = """
+        test.foo = 10
+        test.bar.baz = "handy"
+        test.bar.bip = "20"
+        test.bar.bop = 30
+
+        pass.a = 1
+        fail.z = 1
+
+        if test.foo > test["bar"].bop do
+          fail.y = 1
+        end
+        if ( test.blip && test.bar.bip > 3 )
+           || (
+                !(
+                  !(test.foo < test.bar.bop)
+                  || test.bar["bop"]<=29.95
+                )
+                && !nonexistant
+              ) do
+          pass.b = 1
+        end
+      """
+
+      {:ok, ast} = compile_ast(code, quiet: true)
+      {:ok, {:last}, global, _stack_state} = run_ast(ast, nil, @json_input, verbosity: -3)
+      # IO.inspect(global, label: "global")
+
+      pass_letters = "b"
+      # split string into list of chars
+      pass_list = String.graphemes(pass_letters)
+      Enum.each(pass_list, fn letter ->
+        assert %{^letter => 1} = global["pass"]
+      end)
+      assert Map.keys(global["fail"]) == ["z"]
+    end
+
   end
 
   def compile_ast(code, opts \\ []) do
@@ -96,11 +214,16 @@ defmodule Pidge.RunTest do
     SessionState.stop(sessionstate_pid)
 
     opts = %{
-      from_step: from_step,
       verbosity: Keyword.get(opts, :verbosity, -5),
       input: input,
       session: session_id
     }
+    opts = if from_step != nil do
+      Map.put(opts, :from_step, from_step)
+    else
+      opts
+    end
+
     run_result = Run.run(opts, ast)
 
     {:ok, sessionstate_pid} = SessionState.start_link(session_id)

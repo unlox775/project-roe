@@ -167,12 +167,20 @@ defmodule Pidge.Runtime.SessionState do
   defp update_namespace_key(namespace, key_address, value) do
     namespace = deep_set(namespace, key_address, value)
 
-    # If the object is a map, store the JSON equivalet as well under json.key_address
-    case is_map(value) && ! is_list(key_address) do
+    variable_key =
+      case key_address do
+        [x|_] -> x
+        _ -> key_address
+      end
+      |> to_string()
+      |> trace()
+
+    # If the object is a map, store the JSON equivalent as well under json.key_address
+    case is_map(namespace[variable_key]) do
       true ->
         json =
           Map.get(namespace, "json", %{})
-          |> Map.put(to_string(key_address), Jason.encode!(value, pretty: true))
+          |> Map.put(to_string(variable_key), Jason.encode!(namespace[variable_key], pretty: true))
         Map.put(namespace, "json", json)
       false -> namespace
     end
@@ -196,11 +204,11 @@ defmodule Pidge.Runtime.SessionState do
 
   # quick functions for getting string-based nested key lists
   def deep_get(state, key_list, default \\ nil) do
-    get_nested_key(state, make_list(key_list), default)
-    # get_nested_key(state, make_list_of_strings(key_list), default)
+    # get_nested_key(state, make_list(key_list |> trace()), default)
+    get_nested_key(state, atoms_to_strings(key_list |> trace()) |> trace(label: "after a2s"), default) |> trace(label: "deep_get result")
   end
   def deep_set(state, key_list, value) do
-    set_nested_key(state, make_list(key_list), value)
-    # set_nested_key(state, make_list_of_strings(key_list), value)
+    # set_nested_key(state, make_list(key_list |> trace()), value)
+    set_nested_key(state, atoms_to_strings(key_list |> trace()) |> trace(label: "after a2s"), value) |> trace(label: "deep_set result")
   end
 end
