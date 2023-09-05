@@ -251,9 +251,15 @@ defmodule Pidge.Run do
             end
           bug(3, [human_input_args: human_input_args])
 
+          human_input_args_cli =
+            case human_input_args do
+              [human_input: value] -> ["--human_input", value]
+              _ -> []
+            end
+
           cmd = get_next_command_to_run(pidge_ast, index, id)
           IO.puts "\n\nAuto-running next command: #{cmd} --input RESPONSE-BODY\n\n"
-          next_command = args ++ human_input_args ++ ["--session",RunState.get_opt(:session), "--input", input]
+          next_command = args ++ human_input_args_cli ++ ["--session",RunState.get_opt(:session), "--input", input]
 
           # Save the next command to run in release/next_command.txt
           File.write!("release/next_command.exs", inspect(next_command, limit: :infinity))
