@@ -246,7 +246,7 @@ defmodule Pidge.Run do
           bug(3, [response: response])
           human_input_args =
             case {human_input_mode,response} do
-              {:optional, %{"human_input" => human_input}} -> ["--human-input", human_input]
+              {:optional, %{"human_input" => human_input}} -> [human_input: human_input]
               _ -> human_input_args
             end
           bug(3, [human_input_args: human_input_args])
@@ -615,8 +615,8 @@ defmodule Pidge.Run do
      {human_input_args, human_input_mode} =
       case next_blocking_step(pidge_ast, index+1) do
         {:last} -> {[],:none}
-        {:ok, %{params: %{human_input: _}}} -> {["--human_input", "your input here"],:required}
-        {:ok, %{params: %{optional_human_input: _}}} -> {["--human_input", "-"],:optional}
+        {:ok, %{params: %{human_input: _}}} -> {[human_input: "your input here"],:required}
+        {:ok, %{params: %{optional_human_input: _}}} -> {[human_input: "-"],:optional}
         _ -> {[],:none}
       end
 
