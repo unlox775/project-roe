@@ -3,8 +3,6 @@ defmodule Pidge.Run do
   A module to execute steps in a Pidge script.
   """
 
-  import Pidge.Util
-
   alias Pidge.Runtime.{ SessionState, RunState, CallStack }
 
   alias Pidge.Run.{ AIObjectExtract, LocalFunction }
@@ -248,7 +246,7 @@ defmodule Pidge.Run do
           bug(3, [response: response])
           human_input_args =
             case {human_input_mode,response} do
-              {:optional, %{"human_input" => human_input}} -> [human_input: human_input]
+              {:optional, %{"human_input" => human_input}} -> ["--human-input", human_input]
               _ -> human_input_args
             end
           bug(3, [human_input_args: human_input_args])
@@ -395,8 +393,8 @@ defmodule Pidge.Run do
     iter_variable_name: iter_variable_name,
     }}) do
     # Get the list to iterate on
+    list = CallStack.get_variable(loop_on_variable_name)
     state = CallStack.get_complete_variable_namespace()
-    list = state |> get_nested_key(loop_on_variable_name, nil)
     bug(5, label: "foreach looped list", list: list)
     bug(5, label: "foreach loop", state: state)
 
@@ -615,10 +613,10 @@ defmodule Pidge.Run do
   def get_next_command_args_to_run(pidge_ast, index, from_id) do
      # If the next blocking step has human_input or optional_human_input, add a human-input flag
      {human_input_args, human_input_mode} =
-      case next_blocking_step(pidge_ast, index+1) |> IO.inspect(label: "next_blocking_step output") do
+      case next_blocking_step(pidge_ast, index+1) do
         {:last} -> {[],:none}
-        {:ok, %{params: %{human_input: _}}} -> {[human_input: "your input here"],:required}
-        {:ok, %{params: %{optional_human_input: _}}} -> {[human_input: "-"],:optional}
+        {:ok, %{params: %{human_input: _}}} -> {["--human_input", "your input here"],:required}
+        {:ok, %{params: %{optional_human_input: _}}} -> {["--human_input", "-"],:optional}
         _ -> {[],:none}
       end
 
