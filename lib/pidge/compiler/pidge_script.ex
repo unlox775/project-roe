@@ -37,7 +37,7 @@ defmodule Pidge.Compiler.PidgeScript do
     ) do
       {:ok, pidge_ast}
     else
-      error -> raise "Failed to compile: #{inspect(error, limit: :infinity, pretty: true)}"
+      error -> raise "Failed to compile: #{inspect(error, limit: :infinity, printable_limit: :infinity, pretty: true)}"
     end
   end
 

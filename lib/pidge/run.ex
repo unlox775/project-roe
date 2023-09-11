@@ -262,7 +262,7 @@ defmodule Pidge.Run do
           next_command = args ++ human_input_args_cli ++ ["--session",RunState.get_opt(:session), "--input", input]
 
           # Save the next command to run in release/next_command.txt
-          File.write!("release/next_command.exs", inspect(next_command, limit: :infinity))
+          File.write!("release/next_command.exs", inspect(next_command, limit: :infinity, printable_limit: :infinity))
 
           base_pidge_ast = RunState.get_opt(:base_pidge_ast)
           RunState.reset_for_new_run()
@@ -438,7 +438,7 @@ defmodule Pidge.Run do
           # sets = state |> Enum.map(fn {k,v} ->
           #   {:=, [line: 1], [
           #     {String.to_atom(k), [line: 1], nil},
-          #     Code.string_to_quoted!(inspect(v, limit: :infinity))
+          #     Code.string_to_quoted!(inspect(v, limit: :infinity, printable_limit: :infinity))
           #     ]}
           # end)
           # expr_ast = {:__block__, [], sets ++ [expression_ast]}
@@ -825,7 +825,7 @@ defmodule Pidge.Run do
 
     case Pidge.WebClient.send_and_wait_for_response(data, channel) do
       {:ok, response_data} ->
-        IO.puts("Response recieved: #{inspect(response_data, limit: :infinity) |> String.length()} bytes")
+        IO.puts("Response recieved: #{inspect(response_data, limit: :infinity, printable_limit: :infinity) |> String.length()} bytes")
         bug(2, [response_data: response_data, label: "Response Data"])
         {:ok, response_data}
       {:error, reason} ->

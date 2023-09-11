@@ -9,7 +9,8 @@ defmodule Pidge.Run.AIObjectExtract do
       case format do
         "json" ->
           input = RunState.get_opt(:input)
-          extract_json_object_from_input(input)
+          {:ok, json} = extract_json_object_from_input(input)
+          json
         _ ->
           raise "Unsupported format in ai_object_extract: #{format}"
       end
@@ -37,21 +38,27 @@ defmodule Pidge.Run.AIObjectExtract do
     # Run optomistically, starting with the first open brace and the last close brace
     # If the JSON is invalid, it will throw an error, and we will try again with the next pair of braces
     # If the JSON is valid, we will return the object
-    Enum.reduce_while(open_braces, nil, fn open_index, _acc ->
+    Enum.reduce_while(open_braces, :not_found, fn open_index, _acc ->
       case try_parse(input, open_index, close_braces) do
-        {:ok, json} -> {:halt, json}
-        :error -> {:cont, nil}
+        {:ok, json} -> {:halt, {:ok, json}}
+        {:not_found, _} = x -> {:halt, x}
+        :error -> {:cont, :not_found}
       end
     end)
   end
 
   defp try_parse(input, open_index, close_braces) do
     Enum.reduce_while(close_braces, :error, fn close_index, _acc ->
-      substring = String.slice(input, open_index, close_index - open_index + 1)
-      bug(5, label: "Trying to parse", substring: substring)
-      case Poison.decode(substring) do
-        {:ok, json} -> {:halt, {:ok, json}}
-        {:error, _} -> {:cont, :error}
+      length = close_index - open_index + 1
+      case length > 0 do
+        true ->
+          substring = String.slice(input, open_index, length)
+          bug(5, label: "Trying to parse", substring: substring)
+          case Poison.decode(substring) do
+            {:ok, json} -> {:halt, {:ok, json}}
+            {:error, _} -> {:cont, :error}
+          end
+        false -> {:cont, :error}
       end
     end)
   end

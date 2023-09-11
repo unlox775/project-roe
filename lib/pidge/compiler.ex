@@ -38,9 +38,9 @@ defmodule Pidge.Compiler do
           {:read, {:ok, code}} <- {:read, File.read("src/#{script_name}.pj")},
           {:ok, pidge_ast} <- PidgeScript.compile_source(code)
         ) do
-          File.write!("release/#{script_name}.pjc", inspect(pidge_ast, limit: :infinity, pretty: true))
+          File.write!("release/#{script_name}.pjc", inspect(pidge_ast, limit: :infinity, printable_limit: :infinity, pretty: true))
         else
-          error -> raise "Failed to compile: #{inspect(error, limit: :infinity, pretty: true)}"
+          error -> raise "Failed to compile: #{inspect(error, limit: :infinity, printable_limit: :infinity, pretty: true)}"
         end
 
         compile_pidge_scripts(queue_key, compiled_map_key)

@@ -2,6 +2,9 @@
     const heartbeat_interval = 30000; // 30 seconds
     const url = 'wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket';
 
+    //  Set default for auto-advance
+    window.roeAutoAdvance = window.roeAutoAdvance || false;
+
     let channelID = null;
     let channel = null;
     const init = () => {
@@ -122,6 +125,11 @@
                 } else {
                     console.log("Button not found!");
                 }
+
+                // If auto-advance is enabled, then start watching the stop generating button to appear, then wait for it to disappear
+                if (window.roeAutoAdvance) {
+                    doAutoAdvance();
+                }
             }, 500)
 
             //  If human input is optional, then show 2 buttons, to let them "Submit with Your Own Input" or "Send Message and Continue"
@@ -143,6 +151,109 @@
         } else if (window.roeLastButtonSet === "send_message_and_continue") {
             addSubmitButton('Send Message and Continue','50%', sendLastMessage);
         }
+
+        resetAutoAdvanceButton();
+    };
+
+    const resetAutoAdvanceButton = function () {
+        // Remove all elements of the CSS class "roe-auto-advance-button"
+        let elements = document.getElementsByClassName('roe-auto-advance-button');
+        while(elements.length > 0){
+            elements[0].parentNode.removeChild(elements[0]);
+        }
+
+        if (window.roeAutoAdvance) {
+            addAutoAdvanceButton("Auto-Advance: ON");
+        }
+        else {
+            addAutoAdvanceButton("Auto-Advance: OFF");
+        }
+    };
+
+    const addAutoAdvanceButton = function(label) {
+        // Show a button at the bottom of the page, just below the textarea, labelled "Send Message and Continue"
+        const autoAdvanceButton = document.createElement('button');
+        autoAdvanceButton.innerText = label;
+        autoAdvanceButton.style.position = 'fixed';
+        autoAdvanceButton.style.bottom = '10px';
+        autoAdvanceButton.style.left = '25%';
+        autoAdvanceButton.style.transform = 'translateX(-50%)';
+        autoAdvanceButton.style.fontFamily = 'Trebuchet MS, sans-serif';
+        autoAdvanceButton.style.backgroundColor = '#bbb';
+        autoAdvanceButton.style.padding = '5px 20px';
+        autoAdvanceButton.style.color = '#333';
+        autoAdvanceButton.className = 'roe-auto-advance-button';
+
+        // On click, toggle and reset
+        autoAdvanceButton.addEventListener('click', () => {
+            window.roeAutoAdvance = !window.roeAutoAdvance;
+            resetAutoAdvanceButton();
+        });
+
+        // Append the button to the body
+        document.body.appendChild(autoAdvanceButton);            
+    };
+
+    let autoAdvanceInterval = null;
+    let autoAdvancePromise = null;
+    const doAutoAdvance = function() {
+        // Clear any existing interval
+        if (autoAdvanceInterval) { clearInterval(autoAdvanceInterval); }
+
+        // handle the procession by doing a series of promises that resolve with .then()
+
+        // 1. Wait half a second
+        autoAdvancePromise = new Promise((resolve, reject) => {
+            setTimeout(() => {resolve();}, 500);
+        })
+        // 2. Wait for the "Stop Generating" button to appear
+        .then(() => {
+            return new Promise((resolve, reject) => {
+                autoAdvanceInterval = setInterval(() => {
+                    let button = [...document.querySelectorAll("button")].find(btn => btn.textContent.trim() === "Stop generating");
+
+                    if (button) {
+                        console.log("Stop Generating has appeared!!");
+                        clearInterval(autoAdvanceInterval);
+                        resolve();
+                    } else {
+                        console.log("Still waiting for Stop Generating button to appear...");
+                    }
+                }, 500);
+            });
+        })
+        // 3. Wait for the "Stop Generating" button to disappear
+        .then(() => {
+            return new Promise((resolve, reject) => {
+                autoAdvanceInterval = setInterval(() => {
+                    let button = [...document.querySelectorAll("button")].find(btn => btn.textContent.trim() === "Stop generating");
+
+                    if (!button) {
+                        console.log("Stop Generating has disappeared!!");
+                        clearInterval(autoAdvanceInterval);
+                        resolve();
+                    } else {
+                        console.log("Still waiting for Stop Generating button to disappear...");
+                    }
+                }, 500);
+            });
+        })
+        // 4. Wait one second
+        .then(() => {
+            return new Promise((resolve, reject) => {
+                setTimeout(() => {resolve();}, 1000);
+            });
+        })
+        // 5. Click the "Continue" button
+        .then(() => {
+            // Check if there is textarea with the placeholder of "Send a message"
+            let textarea = [...document.querySelectorAll("textarea")].find(textarea => textarea.placeholder === "Send a message");
+
+            // If there is one, then send last message
+            if (textarea && window.roeAutoAdvance) {
+                sendLastMessage()
+            }
+        });
     };
 
     const addSubmitButton = function(label,left, callback) {
