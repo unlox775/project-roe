@@ -187,7 +187,6 @@ defmodule Pidge.Harness.CommandLine do
 
     Options:
       --input              Define input for the script
-      --jump_to_step       Jump to a specific step in the program
       --from_step          Start from a specific step in the program
       --human_input        Provide human input for the program
       --verbose / -v       Enable verbose mode. This option can be used multiple times to increase verbosity level
@@ -195,7 +194,6 @@ defmodule Pidge.Harness.CommandLine do
 
     Examples:
       pidge run --input "This is text to ask the AI.  Why is the sky blue?"
-      pidge run --jump_to_step step3 --verbose
       pidge run -vv --human_input "Hello, world!"
     """)
   end
