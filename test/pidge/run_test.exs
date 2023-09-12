@@ -3,7 +3,7 @@ defmodule Pidge.RunTest do
 
   import ExUnit.CaptureIO
 
-  alias Pidge.Run
+  alias Pidge.Harness.CommandLine
   alias Pidge.Compiler.{CompileState,PidgeScript}
   alias Pidge.Runtime.SessionState
 
@@ -224,7 +224,7 @@ defmodule Pidge.RunTest do
       opts
     end
 
-    run_result = Run.run(opts, ast)
+    run_result = CommandLine.run(opts, ast)
 
     {:ok, sessionstate_pid} = SessionState.start_link(session_id)
     global = SessionState.get()
