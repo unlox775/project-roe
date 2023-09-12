@@ -10,7 +10,7 @@ defmodule Pidge.Harness.CommandLine do
     opts = parse_opts(args)
 
     with 1 <- 1,
-      {:ok, pidge_ast} <- read_ast(),
+      {:ok, pidge_ast} <- __MODULE__.read_ast(),
       {:halt} <- run(opts, pidge_ast)
     do
       System.halt(0)
@@ -18,11 +18,11 @@ defmodule Pidge.Harness.CommandLine do
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
         System.halt(1)
-      {:last, _} ->
+      {:last} ->
         IO.puts("Pidge Execution complete.")
         System.halt(0)
       error ->
-        IO.puts("Unknown error: #{inspect(error)}")
+        IO.puts("Unknown error in #{__MODULE__}.run: #{inspect(error)}")
         System.halt(1)
     end
   end
@@ -33,7 +33,7 @@ defmodule Pidge.Harness.CommandLine do
     {[_|_] = opts, []} = Code.eval_string(next_command_txt)
 
     with 1 <- 1,
-      {:ok, pidge_ast} <- read_ast(),
+      {:ok, pidge_ast} <- __MODULE__.read_ast(),
       {:halt} <- run(opts, pidge_ast)
     do
       System.halt(0)
@@ -53,7 +53,6 @@ defmodule Pidge.Harness.CommandLine do
   def parse_opts(args) do
     switches = [
       input: :string,
-      jump_to_step: :string,
       from_step: :string,
       human_input: :string,
       session: :string,
@@ -111,7 +110,7 @@ defmodule Pidge.Harness.CommandLine do
         #  The engine barfed, becauase we didn't give it the input it needed
         {:error, :required_input, step} ->
           # Read input from STDIN, then try again
-          read_stdin_input(step)
+          __MODULE__.read_stdin_input(step)
           run_loop(pidge_ast)
 
         x -> x
@@ -128,7 +127,7 @@ defmodule Pidge.Harness.CommandLine do
         opts: next_runtime_opts,
         human_input_mode: human_input_mode
       }} <- Run.private__run(pidge_ast),
-      {:ok, response} <- push_to_api_and_wait_for_response(human_input_mode, conv, message)
+      {:ok, response} <- __MODULE__.push_to_api_and_wait_for_response(human_input_mode, conv, message)
     do
       input = response["body"]
 

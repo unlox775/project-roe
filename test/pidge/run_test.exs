@@ -3,9 +3,9 @@ defmodule Pidge.RunTest do
 
   import ExUnit.CaptureIO
 
-  alias Pidge.Harness.CommandLine
+  alias Pidge.Run
   alias Pidge.Compiler.{CompileState,PidgeScript}
-  alias Pidge.Runtime.SessionState
+  alias Pidge.Runtime.{RunState, SessionState}
 
   @step_name "elmer/read_json_example"
   @json_input """
@@ -224,7 +224,13 @@ defmodule Pidge.RunTest do
       opts
     end
 
-    run_result = CommandLine.run(opts, ast)
+    {:ok, runstate_pid} = RunState.start_link(opts)
+    {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
+
+    run_result = Run.private__run(ast)
+
+    RunState.stop(runstate_pid)
+    SessionState.stop(sessionstate_pid)
 
     {:ok, sessionstate_pid} = SessionState.start_link(session_id)
     global = SessionState.get()

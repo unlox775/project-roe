@@ -32,7 +32,7 @@ defmodule Pidge.Runtime.SessionState do
   ### Server Callbacks
 
   def init(session_id) do
-    {stack_state, global} = get_current_state(session_id)
+    {stack_state, global} = __MODULE__.get_current_state(session_id)
     {:ok, %{session_id: session_id, stack_state: stack_state, global: global}}
   end
 
@@ -51,7 +51,7 @@ defmodule Pidge.Runtime.SessionState do
   #   end
   # end
 
-  defp get_current_state(session_id) do
+  def get_current_state(session_id) do
     # Load state from file
     case File.read(session_id_to_filepath(session_id)) do
       {:ok, json} ->

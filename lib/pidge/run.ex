@@ -24,6 +24,13 @@ defmodule Pidge.Run do
     do
       # end the state process
       {:ok}
+    else
+      {:send_api_message, _, _} = x -> x
+      {:error, _} = x -> x
+      {:error, _, _} = x -> x
+      {:last} -> {:last}
+      {:last, _, _, _} -> {:last}
+      error -> {:error, "Unknown error in #{__MODULE__}.private__run: #{inspect(error)}"}
     end
   end
 
@@ -125,9 +132,9 @@ defmodule Pidge.Run do
 
   def ai_prompt(pidge_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index) do
     with 1 <- 1,
-      ""<>_ = RunState.get_opt(:session),
-      {:ok, message} <- compile_template(prompt),
-      {opts,_args,human_input_args,human_input_mode} = get_next_command_args_to_run(pidge_ast, index, id)
+      ""<>_ <- RunState.get_opt(:session),
+      {:ok, message} <- __MODULE__.compile_template(prompt),
+      {opts,_args,human_input_args,human_input_mode} <- get_next_command_args_to_run(pidge_ast, index, id)
     do
       {
         :send_api_message,
@@ -537,16 +544,6 @@ defmodule Pidge.Run do
 
     # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
-      RunState.get_opt(:jump_to_step) ->
-        # the :id on each pidge entry is the step name
-        match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).id == RunState.get_opt(:jump_to_step)))
-        if match == nil do
-          {:error, "Step not found: #{RunState.get_opt(:jump_to_step)}"}
-        else
-          {step, index} = match
-          {:ok, nil, step, index}
-        end
-
       RunState.get_opt(:from_step) ->
         # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
         case Regex.run(~r/^(foreach|case|block)-(\d+)(?:\[(\d+)\])?\.(.+)$/, RunState.get_opt(:from_step)) do
