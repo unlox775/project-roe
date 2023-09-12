@@ -26,8 +26,8 @@ defmodule Pidge.Run do
       {:ok}
     else
       {:send_api_message, _, _} = x -> x
+      {:required_input_callback, _} = x -> x
       {:error, _} = x -> x
-      {:error, _, _} = x -> x
       {:last} -> {:last}
       {:last, _, _, _} -> {:last}
       error -> {:error, "Unknown error in #{__MODULE__}.private__run: #{inspect(error)}"}
@@ -59,12 +59,12 @@ defmodule Pidge.Run do
   def execute(pidge_ast, step, index) do
     # start with the step at index, and keep going until we get a :halt
     case run_step(pidge_ast, step, index) do
+      {:halt} = x -> x
+      {:send_api_message, _, _} = x -> x
+      {:required_input_callback, _} = x -> x
       {:halt, cli_prompt} ->
         IO.puts("Runtime Finshed.\n\n#{cli_prompt}")
         {:halt}
-      {:halt} -> {:halt}
-      {:send_api_message, _, _} = send -> send
-      {:error, :required_input, step} -> {:error, :required_input, step}
       {:error, reason} ->
         {:error, reason}
       {:next} ->
@@ -92,9 +92,9 @@ defmodule Pidge.Run do
     do
       {:next}
     else
-      {:halt} -> {:halt}
-      {:send_api_message, _, _} = send -> send
-      {:error, :required_input, step} -> {:error, :required_input, step}
+      {:halt} = x -> x
+      {:send_api_message, _, _} = x -> x
+      {:required_input_callback, _} = x -> x
       {:error, reason} -> {:error, reason}
       error -> {:error, "Error running step: #{inspect(error)}"}
     end
@@ -119,7 +119,7 @@ defmodule Pidge.Run do
         # If the input is not provided, then read stdin
         case RunState.get_opt(:input) do
           nil ->
-            {:error, :required_input, step}
+            {:required_input_callback, step}
           _ -> {:ok}
         end
       false -> {:ok}

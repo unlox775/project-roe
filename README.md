@@ -1,6 +1,6 @@
 # **pidge**
 
-pidge is a powerful tool that aids in creating and managing AI-driven conversation projects. In this README, we provide a brief overview of how to set up, compile, and use pidge along with its associated development bookmarklet.
+pidge is a powerful tool that aids in creating and managing AI-driven conversation apps. In this README, we provide a brief overview of how to set up, compile, and use pidge along with its associated development bookmarklet.
 
 ## **Prerequisites**
 
@@ -12,31 +12,31 @@ pidge is a powerful tool that aids in creating and managing AI-driven conversati
 1. Clone the pidge git repository.
 2. Ensure you have the aforementioned prerequisites installed.
 3. Navigate to the root directory of the pidge repository.
-4. Run `make build` to compile the project. This will create an executable binary named `pidge` in the `release/` directory.
+4. Run `make build` to compile the app. This will create an executable binary named `pidge` in the `release/` directory.
 5. You can either:
     - Move the `pidge` binary from `release/` to a directory in your system's PATH, e.g., `/usr/local/bin/`, or
     - Add the path to the `release/` directory to your system's PATH.
 
 ## **Getting Started with pidge**
 
-1. **Create a New Project**: 
+1. **Create a New App**: 
    ```bash
-   pidge new [project-name]
+   pidge new [app-name]
    ```
-   This command initializes a new pidge project in a directory named `[project-name]`. The basic structure includes:
+   This command initializes a new pidge app in a directory named `[app-name]`. The basic structure includes:
    - A `src/` directory.
    - Inside `src/`, a `prompt/` directory containing folders for each AI conversation. The default template has two conversations named `bird` and `insight`.
    - A main file: `main.pj`.
    - Conversation templates with `.pjt` extensions.
 
-2. **Compile the Project**: 
+2. **Compile the App**: 
    ```bash
    pidge compile
    ```
 
-3. **Run the Project**:
+3. **Run the App**:
 
-To run your pidge project, use the following command:
+To run your pidge app, use the following command:
 
 ```bash
 pidge run [options]
@@ -52,11 +52,11 @@ Here are the available command-line switches for the `run` command:
     - `-h` or `--help`: Displays the help content, providing an overview of the available options.
 
 - **Session**:
-    - `--session [session-name]`: Defines the session name for your project. This session name is crucial, especially when using the bookmarklet. It serves as the identifier for the session. The name should not contain spaces or special characters, and it will be automatically converted to lowercase. For instance, "ElvisStoryGen2023" is an acceptable session name.
+    - `--session [session-name]`: Defines the session name for your app. This session name is crucial, especially when using the bookmarklet. It serves as the identifier for the session. The name should not contain spaces or special characters, and it will be automatically converted to lowercase. For instance, "ElvisStoryGen2023" is an acceptable session name.
 
 - **Input**:
     - `--input "[string]"`: Allows users to pass in a string input directly from the command line.
-    - Alternatively, if no input is provided and the project expects one, the program will pause and wait for the user to provide the input via standard input.
+    - Alternatively, if no input is provided and the app expects one, the program will pause and wait for the user to provide the input via standard input.
 
 - **Human Input**:
     - `--human_input "[string]"` or `--human-input "[string]"`: Used to provide human-specific input, suggestions, or ideas. This is distinct from the regular input and is designed to capture insights from the user.
@@ -69,7 +69,7 @@ Here are the available command-line switches for the `run` command:
    ```bash
    pidge go [run-options]
    ```
-   This command first compiles and then immediately runs your project.
+   This command first compiles and then immediately runs your app.
 
 ## **Bookmarklet**
 

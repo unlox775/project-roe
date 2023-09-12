@@ -7,7 +7,7 @@ defmodule Pidge do
         Pidge.Compiler.compile([])
         Pidge.Harness.CommandLine.run(rest_args)
       ["continue" | rest_args] -> Pidge.Harness.CommandLine.continue(rest_args)
-      ["new" | [project_name]] -> Pidge.Project.new_project(project_name)
+      ["new" | [app_name]] -> Pidge.Project.new_app(app_name)
       _ -> IO.puts("Unknown command")
     end
   end

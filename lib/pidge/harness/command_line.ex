@@ -108,7 +108,7 @@ defmodule Pidge.Harness.CommandLine do
     return =
       case run_loop(pidge_ast) do
         #  The engine barfed, becauase we didn't give it the input it needed
-        {:error, :required_input, step} ->
+        {:required_input_callback, step} ->
           # Read input from STDIN, then try again
           __MODULE__.read_stdin_input(step)
           run_loop(pidge_ast)

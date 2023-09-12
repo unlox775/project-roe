@@ -25,6 +25,6 @@ pidge-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
-example_project/release
+example_app/release
 
 .DS_Store

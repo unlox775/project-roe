@@ -44,7 +44,7 @@ defmodule CommandLineTest do
     assert capture_io(fn -> CommandLine.run([]) end) == "Pidge Execution complete.\n"
   end
 
-  test "run/2 with mocked :required_input and re-call" do
+  test "run/2 with mocked :required_input_callback and re-call" do
     with_mock(CommandLine, [:passthrough], read_stdin_input: fn _ -> Pidge.Runtime.RunState.set_opt(:input, "asdf") end) do
       capture_io(fn ->
         assert CommandLine.run(@base_opts, @input_req_ast_contents) == {:last}
