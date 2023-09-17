@@ -4,17 +4,47 @@ defmodule Pidge.Harness.CommandLine do
   """
 
   alias Pidge.Runtime.{ SessionState, RunState }
-  alias Pidge.Run
+  alias Pidge.App.Loft
+  alias Pidge.FlightControl
 
   def run(args) do
     opts = parse_opts(args)
+    private__run(opts, "release")
+  end
 
-    with 1 <- 1,
-      {:ok, pidge_ast} <- __MODULE__.read_ast(),
-      {:halt} <- run(opts, pidge_ast)
-    do
-      System.halt(0)
-    else
+  def continue(_args) do
+    # Read in an eval the next command to run
+    next_command_txt = File.read!("release/next_command.exs")
+    {[_|_] = opts, []} = Code.eval_string(next_command_txt)
+    private__run(opts, "release")
+  end
+
+  def private__run(opts, get_from) do
+    {:ok, flightcontrol_pid} = FlightControl.start_link()
+    {:ok, runstate_pid} = RunState.start_link(opts)
+    {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
+    {:ok, loft_pid} = Loft.start_link()
+
+    Loft.register_app(:local, get_from)
+
+    return =
+      case run_loop(:local) do
+        #  The engine barfed, becauase we didn't give it the input it needed
+        {:required_input_callback, step} ->
+          # Read input from STDIN, then try again
+          __MODULE__.read_stdin_input(step)
+          run_loop(:local)
+
+        x -> x
+      end
+
+    Loft.stop(loft_pid)
+    SessionState.stop(sessionstate_pid)
+    RunState.stop(runstate_pid)
+    FlightControl.stop(flightcontrol_pid)
+
+    case return do
+      {:halt} -> System.halt(0)
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
         System.halt(1)
@@ -25,29 +55,8 @@ defmodule Pidge.Harness.CommandLine do
         IO.puts("Unknown error in #{__MODULE__}.run: #{inspect(error)}")
         System.halt(1)
     end
-  end
 
-  def continue(_args) do
-    # Read in an eval the next command to run
-    next_command_txt = File.read!("release/next_command.exs")
-    {[_|_] = opts, []} = Code.eval_string(next_command_txt)
-
-    with 1 <- 1,
-      {:ok, pidge_ast} <- __MODULE__.read_ast(),
-      {:halt} <- run(opts, pidge_ast)
-    do
-      System.halt(0)
-    else
-      {:error, reason} ->
-        IO.puts("Error: #{inspect(reason)}")
-        System.halt(1)
-      {:last, _} ->
-        IO.puts("Pidge Execution complete.")
-        System.halt(0)
-      error ->
-        IO.puts("Unknown error: #{inspect(error)}")
-        System.halt(1)
-    end
+    return
   end
 
   def parse_opts(args) do
@@ -101,37 +110,17 @@ defmodule Pidge.Harness.CommandLine do
     end
   end
 
-  def run(opts, pidge_ast) do
-    {:ok, runstate_pid} = RunState.start_link(opts)
-    {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
-
-    return =
-      case run_loop(pidge_ast) do
-        #  The engine barfed, becauase we didn't give it the input it needed
-        {:required_input_callback, step} ->
-          # Read input from STDIN, then try again
-          __MODULE__.read_stdin_input(step)
-          run_loop(pidge_ast)
-
-        x -> x
-      end
-
-    RunState.stop(runstate_pid)
-    SessionState.stop(sessionstate_pid)
-    return
-  end
-
-  def run_loop(pidge_ast) do
+  def run_loop(app_name) do
     with 1 <- 1,
       {:send_api_message, {conv, message}, %{
         opts: next_runtime_opts,
         human_input_mode: human_input_mode
-      }} <- Run.private__run(pidge_ast),
+      }} <- fly_and_wait(app_name, :main),
       {:ok, response} <- __MODULE__.push_to_api_and_wait_for_response(human_input_mode, conv, message)
     do
       input = response["body"]
 
-      # cmd = get_next_command_to_run(pidge_ast, index, id)
+      # cmd = get_next_command_to_run(app_name, index, id)
       IO.puts "\n\nAuto-running next command: pidge run #{inspect(next_runtime_opts)} --input RESPONSE-BODY\n\n"
       next_command = next_runtime_opts ++ [input: input]
 
@@ -141,23 +130,34 @@ defmodule Pidge.Harness.CommandLine do
       RunState.reset_for_new_run()
       Enum.each(next_command, fn {key, value} -> RunState.set_opt(key, value) end)
       bug(4, [label: "next_command_opts", opts: RunState.get_opts()])
-      run_loop(pidge_ast)
+      run_loop(app_name)
     end
   end
 
-  def read_ast() do
-    # bug(1, [label: "Reading AST..."])
-    # Read and evaluate release/main.pc with a with() error handling
-    with {:ok, contents} <- File.read("release/main.pjc"),
-         {[%{} | _] = pidge_ast, []} <- Code.eval_string(contents) do
-      # bug(3, [ast_content: pidge_ast])
-      {:ok, pidge_ast}
-    else
-      {:error, reason} ->
-        {:error, "Error reading main.pjc: #{inspect(reason)}"}
-      error ->
-        IO.puts("Unknown error reading AST: #{inspect(error)}")
-        System.halt(1)
+  def fly_and_wait(app_name, script_name) do
+    flight_no = FlightControl.new_flight({app_name, script_name})
+
+    wait(flight_no)
+  end
+
+  def wait(flight_no) do
+    receive do
+      {:landed, ^flight_no, payload} ->
+        payload
+      {:crashed, ^flight_no, error_payload} ->
+        raise "Flight crashed: #{inspect(error_payload)}"
+    after
+      2_000 ->
+        case FlightControl.check_flight_status(flight_no) do
+          {:landed, payload} ->
+            IO.puts("WARNING: Flight says it landed, but it didn't send message: #{inspect(flight_no)}")
+            payload
+          {:crashed, error} ->
+            raise "Flight crashed, but did not send :crashed message.  Error: #{inspect(error)}"
+          :in_flight ->
+            IO.puts("Still in flight... (#{flight_no})")
+            wait(flight_no)
+        end
     end
   end
 

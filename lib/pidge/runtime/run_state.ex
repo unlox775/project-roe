@@ -6,16 +6,18 @@ defmodule Pidge.Runtime.RunState do
   def start_link(initial_opts), do: GenServer.start_link(__MODULE__, initial_opts, name: __MODULE__)
   def stop(pid), do: GenServer.stop(pid, :normal)
 
-  # opts
+  # opts - meant to be per-run configuration params, like verbosity
+  #   Rule of thumb: It may belong here if it doesn't change during the course of a run
   def set_opts(opts), do: GenServer.call(__MODULE__, {:set_opts, opts})
   def set_opt(key, value), do: GenServer.call(__MODULE__, {:set_opt, key, value})
   def delete_opt(key), do: GenServer.call(__MODULE__, {:delete_opt, key})
 
   def get_opts(), do: GenServer.call(__MODULE__, :get_opts)
   def get_opt(key), do: GenServer.call(__MODULE__, {:get_opt, key})
-  def get_verbosity(), do: get_opt(:verbosity)
+  def get_verbosity(), do: get_opt(:verbosity) || 0
 
-  # meta
+  # meta - meant for values that are set and updated during a run, like the current step
+  #   Rule of thumb: It may belong here if it changes during the course of a run, or is an internal param, not ever used outside this runtime
   def set_meta(meta), do: GenServer.call(__MODULE__, {:set_meta, meta})
   def set_meta_key(key, value), do: GenServer.call(__MODULE__, {:set_meta_key, key, value})
   def delete_meta_key(key), do: GenServer.call(__MODULE__, {:delete_meta_key, key})

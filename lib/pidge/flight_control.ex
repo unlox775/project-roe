@@ -2,22 +2,14 @@ defmodule Pidge.FlightControl do
   use GenServer
 
   # Client API
+  def start_link(initial_opts \\ []), do: GenServer.start_link(__MODULE__, initial_opts, name: __MODULE__)
+  def stop(pid), do: GenServer.stop(pid, :normal)
+  def new_flight(script), do: GenServer.call(__MODULE__, {:new_flight, script})
+  def check_flight_status(flight_no), do: GenServer.call(__MODULE__, {:check_flight_status, flight_no})
 
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, :ok, opts)
-  end
-
-  def stop do
-    GenServer.stop(__MODULE__, :shutdown)
-  end
-
-  def execute_script(script) do
-    GenServer.call(__MODULE__, {:execute_script, script})
-  end
-
-  def check_flight_status(flight_no) do
-    GenServer.call(__MODULE__, {:check_flight_status, flight_no})
-  end
+  # Bird API
+  def coming_in_for_landing(payload), do: GenServer.call(__MODULE__, {:coming_in_for_landing, payload})
+  def i_crashed(error_payload), do: GenServer.call(__MODULE__, {:i_crashed, error_payload})
 
   # Server Callbacks
 
@@ -35,20 +27,21 @@ defmodule Pidge.FlightControl do
 
     {:ok, %{
       in_flight: %{},
+      flight_caller: %{},
       runway_queue: [],
       landed_taxi_queue: %{},
       crashed_flights: %{}
     }}
   end
 
-  def terminate(:shutdown, _state) do
+  def terminate(:normal, _state) do
     # Terminate worker pool
     :poolboy.stop({:global, __MODULE__})
   end
 
-  def handle_call({:execute_script, _script} = payload, from, state), do: new_flight(payload, from, state)
+  def handle_call({:new_flight, _script} = payload, from, state), do: new_flight(payload, from, state)
 
-  def handle_call({:i_am_landing_now, payload}, {bird_pid,_} = from, state) do
+  def handle_call({:coming_in_for_landing, payload}, {bird_pid,_} = from, state) do
     # This is a reply from a worker
     # We need to find the flight number
     flight_no = state.in_flight |> Map.keys() |> Enum.find(fn flight_no ->
@@ -60,13 +53,15 @@ defmodule Pidge.FlightControl do
       IO.inspect(bird_pid, label: "bird_pid")
       IO.inspect(from, label: "from")
       IO.inspect(payload, label: "payload")
-      raise "Flight not found in :i_am_landing_now handler"
+      raise "Flight not found in :coming_in_for_landing handler"
     end
 
     state =
       state
       |> Map.put(:in_flight, Map.delete(state.in_flight, flight_no))
       |> Map.put(:landed_taxi_queue, Map.put(state.landed_taxi_queue, flight_no, payload))
+
+    send_message_to_flight_caller(state, flight_no, {:landed, flight_no, payload})
 
     {:reply, :ok, next_flight(bird_pid, state)}
   end
@@ -91,6 +86,8 @@ defmodule Pidge.FlightControl do
       |> Map.put(:in_flight, Map.delete(state.in_flight, flight_no))
       |> Map.put(:crashed_flights, Map.put(state.crashed_flights, flight_no, error_payload))
 
+    send_message_to_flight_caller(state, flight_no, {:crashed, flight_no, error_payload})
+
     {:reply, :ok, next_flight(bird_pid, state)}
   end
 
@@ -105,7 +102,7 @@ defmodule Pidge.FlightControl do
             {:reply, :ok, state} = handle_call({:i_crashed, err_payload}, {bird_pid, nil}, state)
             {:reply, {:crashed, err_payload}, state}
         end
-      %{ landed_taxi_queue: %{^flight_no => _} } -> {:reply, :landed, state}
+      %{ landed_taxi_queue: %{^flight_no => payload} } -> {:reply, {:landed, payload}, state}
       %{ crashed_flights: %{^flight_no => err_payload} } -> {:reply, {:crashed, err_payload}, state}
       _ ->
         number_in_queue = state.runway_queue |> Enum.find_index(fn {num, _} -> flight_no == num end)
@@ -116,8 +113,10 @@ defmodule Pidge.FlightControl do
     end
   end
 
-  defp new_flight(payload, _from, state) do
+  defp new_flight(payload, {caller_pid, _}, state) do
     flight_no = :crypto.strong_rand_bytes(8) |> Base.encode16()
+
+    state = Map.put(state, :flight_caller, Map.put(state.flight_caller, flight_no, caller_pid))
 
     case :poolboy.checkout({:global, Pidge.FlightControl}, false) do
       :full ->
@@ -127,7 +126,6 @@ defmodule Pidge.FlightControl do
         GenServer.cast(bird_pid, payload)
         {:reply, flight_no, Map.put(state, :in_flight, Map.put(state.in_flight, flight_no, bird_pid))}
     end
-    {:reply, :ok, state}
   end
 
   defp next_flight(bird_pid, state) do
@@ -144,16 +142,21 @@ defmodule Pidge.FlightControl do
   end
 
   def handle_info(:check_flights, state) do
-    new_state = Enum.reduce(state.in_flight, state, fn {_flight_no, bird_pid}, acc_state ->
+    new_state = Enum.reduce(state.in_flight, state, fn {flight_no, bird_pid}, acc_state ->
       if Process.alive?(bird_pid) do
         acc_state
       else
         err_payload = {:error, "PID was found to not be alive during check_flights"}
         {:reply, :ok, acc_state} = handle_call({:i_crashed, err_payload}, {bird_pid, nil}, acc_state)
-        acc_state
+        Map.put(acc_state, :in_flight, Map.delete(state.in_flight, flight_no))
       end
     end)
 
     {:noreply, new_state}
+  end
+
+  defp send_message_to_flight_caller(state, flight_no, message) do
+    caller_pid = state.flight_caller[flight_no]
+    send(caller_pid, message)
   end
 end

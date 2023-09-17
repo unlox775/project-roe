@@ -3,8 +3,10 @@ defmodule Pidge.RunTest do
 
   import ExUnit.CaptureIO
 
-  alias Pidge.Run
   alias Pidge.Compiler.{CompileState,PidgeScript}
+  alias Pidge.App.Loft
+  alias Pidge.Run
+  alias Pidge.FlightControl
   alias Pidge.Runtime.{RunState, SessionState}
 
   @step_name "elmer/read_json_example"
@@ -184,6 +186,34 @@ defmodule Pidge.RunTest do
       assert Map.keys(global["fail"]) == ["z"]
     end
 
+    test "local functions" do
+      code = """
+        one = 1
+        list = []
+        list <~ one
+        new_list = Local.add_two(list)
+      """
+
+      function_code = """
+      def function(list) do
+        list ++ [2]
+      end
+      """
+
+      {:ok, function_ast} = Pidge.Compiler.LocalFunction.ElixirSyntax.validate_function(function_code)
+      {:ok, compiled_function} = Pidge.Compiler.LocalFunction.ElixirSyntax.compile_function(function_ast)
+      {:ok, ast} = compile_ast(code, quiet: true)
+      {:ok, {:last}, global, _stack_state} = run_ast(
+        ast,
+        nil,
+        @json_input,
+        verbosity: -3,
+        local_functions: %{"add_two.ex.pjf" => compiled_function}
+      )
+      # IO.inspect(global, label: "global")
+
+      assert global["new_list"] == [1,2]
+    end
   end
 
   def compile_ast(code, opts \\ []) do
@@ -213,24 +243,34 @@ defmodule Pidge.RunTest do
     SessionState.wipe()
     SessionState.stop(sessionstate_pid)
 
-    opts = %{
+    runtime_opts = %{
       verbosity: Keyword.get(opts, :verbosity, -5),
       input: input,
       session: session_id
     }
-    opts = if from_step != nil do
-      Map.put(opts, :from_step, from_step)
+    runtime_opts = if from_step != nil do
+      Map.put(runtime_opts, :from_step, from_step)
     else
-      opts
+      runtime_opts
     end
 
-    {:ok, runstate_pid} = RunState.start_link(opts)
+    {:ok, flightcontrol_pid} = FlightControl.start_link()
+    {:ok, runstate_pid} = RunState.start_link(runtime_opts)
     {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
+    {:ok, loft_pid} = Loft.start_link()
 
-    run_result = Run.private__run(ast)
+    Loft.register_app(:local, %{
+      pidge_code: %{main: ast},
+      local_function_files: Keyword.get(opts, :local_functions, %{}),
+      prompt_files: Keyword.get(opts, :prompt_files, %{})
+    })
 
+    run_result = Run.private__run(:local, :main)
+
+    Loft.stop(loft_pid)
     RunState.stop(runstate_pid)
     SessionState.stop(sessionstate_pid)
+    FlightControl.stop(flightcontrol_pid)
 
     {:ok, sessionstate_pid} = SessionState.start_link(session_id)
     global = SessionState.get()

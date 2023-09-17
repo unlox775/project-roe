@@ -7,6 +7,7 @@ defmodule Pidge.Compiler.LocalFunction.ElixirSyntax do
     ast = Code.string_to_quoted(@precode<>code<>@postcode)
 
     # Test for certain no-no's to keep this case reallllllly simple
+    # TODO
 
     {:ok, ast}
   end

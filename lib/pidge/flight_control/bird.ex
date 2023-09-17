@@ -1,6 +1,9 @@
 defmodule Pidge.FlightControl.Bird do
   use GenServer
 
+  alias Pidge.Run
+  alias Pidge.FlightControl
+
   # Client API
 
   def start_link(opts \\ []) do
@@ -11,19 +14,22 @@ defmodule Pidge.FlightControl.Bird do
     GenServer.stop(__MODULE__)
   end
 
-  def execute_script(script) do
-    GenServer.call(__MODULE__, {:execute_script, script})
-  end
-
   # Server Callbacks
 
   def init(_ops) do
     {:ok, %{}}
   end
 
-  def handle_call({:execute_script, script}, _from, state) do
-    IO.inspect(script)
+  def handle_cast({:new_flight, {app_name, script_name}}, state) do
+    try do
+      payload = Run.private__run(app_name, script_name)
 
-    {:reply, :ok, state}
+      FlightControl.coming_in_for_landing(payload)
+      {:noreply, state}
+    rescue
+      error ->
+        FlightControl.i_crashed("Error: #{inspect(error)}")
+        {:noreply, state}
+    end
   end
 end

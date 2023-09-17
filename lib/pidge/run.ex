@@ -3,8 +3,8 @@ defmodule Pidge.Run do
   A module to execute steps in a Pidge script.
   """
 
+  alias Pidge.App.Loft
   alias Pidge.Runtime.{ RunState, CallStack }
-
   alias Pidge.Run.{ AIObjectExtract, LocalFunction }
 
   # @transit_tmp_dir "/tmp/roe/transit"
@@ -12,8 +12,11 @@ defmodule Pidge.Run do
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract]
   @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case, :pipe_from_human_input, :pipe_from_input]
 
-  def private__run(pidge_ast) do
-    RunState.set_opt(:base_pidge_ast, pidge_ast)
+  def private__run(app_name, script_name) do
+    pidge_ast = Loft.get_pidge_code(app_name, script_name)
+    RunState.set_meta_key(:pidge_ast, pidge_ast)
+    RunState.set_meta_key(:app_name, app_name)
+    RunState.set_meta_key(:script_name, script_name)
 
     with 1 <- 1,
       # Find the step to start at
@@ -447,7 +450,7 @@ defmodule Pidge.Run do
     end)
 
     bug(2, [label: "local_function_call", alias_path: alias_path, function_name: function_name, args: args, evaluated_args: evaluated_args])
-    result = LocalFunction.function_call(alias_path, function_name, evaluated_args)
+    result = LocalFunction.function_call(RunState.get_meta_key(:app_name), alias_path, function_name, evaluated_args)
     bug(2, [label: "local_function_call", result: result])
     RunState.set_opt(:input, result)
     bug(5, [input_with_result_in_it: RunState.get_opt(:input)])
@@ -519,8 +522,8 @@ defmodule Pidge.Run do
     end)
     bug(5, [label: "compile_template", state: state])
 
-    # Read in the template file from /release/prompts
-    template = File.read!("release/prompts/#{prompt}.pjt")
+    # Read in the template file from the Loft registry
+    template = Loft.get_prompt(RunState.get_meta_key(:app_name), prompt)
     bug(3, [label: "compile_template", template: template])
 
     # Use Solid to parse the template
