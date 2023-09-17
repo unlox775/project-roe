@@ -16,7 +16,7 @@ defmodule Pidge.App.Loft do
     try do
       # Load the app's manifest JSON
       manifest_path = Path.join(app_path, "manifest.json")
-      manifest = Jason.decode!(File.read!(manifest_path))
+      manifest = Jason.decode!(File.read!(manifest_path), keys: :atoms)
 
       # Get the list of pidge code files, and read them into a list of strings
       #   These are listed in the manifest.json file under pidge_code
@@ -24,7 +24,7 @@ defmodule Pidge.App.Loft do
       pidge_code = manifest.pidge_code |> Enum.reduce(%{}, fn filename, acc ->
         pidge_code_path = Path.join(app_path, "#{filename}.pjc")
         pidge_code = read_pidge_ast_from_raw_string(File.read!(pidge_code_path))
-        Map.put(acc, filename, pidge_code)
+        Map.put(acc, String.to_atom(filename), pidge_code)
       end)
 
       # Get the list of local function files, and read them into a list of strings

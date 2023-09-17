@@ -1,6 +1,8 @@
 defmodule Pidge.WebClient.Socket do
   use WebSockex
 
+  alias Pidge.Runtime.RunState
+
   @url "wss://abandoned-scared-halibut.gigalixirapp.com/socket/websocket"
   @heartbeat_interval 10_000  # 10 seconds
 
@@ -9,6 +11,7 @@ defmodule Pidge.WebClient.Socket do
       state
       |> Map.put(:started_heartbeat, false)
       |> Map.put(:parent, self())
+      |> Map.put(:runstate_opts, RunState.get_opts())
 
       bug(3,[url: @url])
       {:ok, pid} = WebSockex.start(@url, __MODULE__, state)
@@ -40,6 +43,8 @@ defmodule Pidge.WebClient.Socket do
   end
 
   def handle_frame({_type, msg}, %{ref: ref, parent: parent} = state) do
+    RunState.init_session(state.runstate_opts)
+
     # First time: If we haven't started the heartbeat, do so
     state =
       if !state.started_heartbeat do

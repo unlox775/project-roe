@@ -22,6 +22,14 @@ defmodule Pidge.Compiler do
     compile_prompts(:prompt_files, :compiled_prompt_files)
     compile_local_functions(:local_functions, :compiled_local_functions)
 
+    # Write manifest.json
+    manifest = %{
+      pidge_code: Map.keys(CompileState.get_meta_key(:compiled_pidge_scripts)),
+      prompt_files: Map.keys(CompileState.get_meta_key(:compiled_prompt_files)),
+      local_function_files: Map.keys(CompileState.get_meta_key(:compiled_local_functions))
+    }
+    File.write!("release/manifest.json", Jason.encode!(manifest, pretty: true))
+
     # end the state process
     CompileState.stop(compilestate_pid)
   end

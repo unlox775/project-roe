@@ -50,7 +50,7 @@ defmodule CommandLineTest do
   end
 
   test "run/2 with mocked :required_input_callback and re-call" do
-    with_mock(CommandLine, [:passthrough], read_stdin_input: fn _ -> Pidge.Runtime.RunState.set_opt(:input, "asdf") end) do
+    with_mock(CommandLine, [:passthrough], read_stdin_input: fn _,opts -> Map.put(opts, :input, "asdf") end) do
       capture_io(fn ->
         assert CommandLine.private__run(@base_opts, %{
           pidge_code: %{main: @input_req_ast_contents},
@@ -58,7 +58,7 @@ defmodule CommandLineTest do
           prompt_files: %{}
         }) == {:last}
       end)
-      assert_called CommandLine.read_stdin_input(:_)
+      assert_called CommandLine.read_stdin_input(:_,:_)
     end
   end
 end

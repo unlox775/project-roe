@@ -255,7 +255,8 @@ defmodule Pidge.RunTest do
     end
 
     {:ok, flightcontrol_pid} = FlightControl.start_link()
-    {:ok, runstate_pid} = RunState.start_link(runtime_opts)
+    {:ok, runstate_pid} = RunState.start_link()
+    RunState.init_session(runtime_opts)
     {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
     {:ok, loft_pid} = Loft.start_link()
 

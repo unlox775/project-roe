@@ -21,19 +21,23 @@ defmodule Pidge.Harness.CommandLine do
 
   def private__run(opts, get_from) do
     {:ok, flightcontrol_pid} = FlightControl.start_link()
-    {:ok, runstate_pid} = RunState.start_link(opts)
-    {:ok, sessionstate_pid} = SessionState.start_link(RunState.get_opt(:session))
+    {:ok, runstate_pid} = RunState.start_link()
+    RunState.init_session(opts)
+    {:ok, sessionstate_pid} = SessionState.start_link(opts.session)
     {:ok, loft_pid} = Loft.start_link()
 
-    Loft.register_app(:local, get_from)
+    :ok = Loft.register_app(:local, get_from)
+
+    run_payload = {:local, :main, opts}
 
     return =
-      case run_loop(:local) do
+      case run_loop(run_payload) do
         #  The engine barfed, becauase we didn't give it the input it needed
         {:required_input_callback, step} ->
           # Read input from STDIN, then try again
-          __MODULE__.read_stdin_input(step)
-          run_loop(:local)
+          opts = __MODULE__.read_stdin_input(step, opts)
+          run_payload = {:local, :main, opts}
+          run_loop(run_payload)
 
         x -> x
       end
@@ -110,12 +114,12 @@ defmodule Pidge.Harness.CommandLine do
     end
   end
 
-  def run_loop(app_name) do
+  def run_loop(run_payload) do
     with 1 <- 1,
       {:send_api_message, {conv, message}, %{
         opts: next_runtime_opts,
         human_input_mode: human_input_mode
-      }} <- fly_and_wait(app_name, :main),
+      }} <- fly_and_wait(run_payload),
       {:ok, response} <- __MODULE__.push_to_api_and_wait_for_response(human_input_mode, conv, message)
     do
       input = response["body"]
@@ -127,15 +131,15 @@ defmodule Pidge.Harness.CommandLine do
       # Save the next command to run in release/next_command.txt
       File.write!("release/next_command.exs", inspect(next_command, limit: :infinity, printable_limit: :infinity))
 
-      RunState.reset_for_new_run()
-      Enum.each(next_command, fn {key, value} -> RunState.set_opt(key, value) end)
-      bug(4, [label: "next_command_opts", opts: RunState.get_opts()])
-      run_loop(app_name)
+      bug(4, [label: "next_command_opts", opts: next_command])
+      run_payload = {:local, :main, Enum.into(next_command, %{})
+    }
+      run_loop(run_payload)
     end
   end
 
-  def fly_and_wait(app_name, script_name) do
-    flight_no = FlightControl.new_flight({app_name, script_name})
+  def fly_and_wait(run_payload) do
+    flight_no = FlightControl.new_flight(run_payload)
 
     wait(flight_no)
   end
@@ -144,8 +148,8 @@ defmodule Pidge.Harness.CommandLine do
     receive do
       {:landed, ^flight_no, payload} ->
         payload
-      {:crashed, ^flight_no, error_payload} ->
-        raise "Flight crashed: #{inspect(error_payload)}"
+      {:crashed, ^flight_no, error} ->
+        raise "Flight crashed: \n\n#{error}\n\n"
     after
       2_000 ->
         case FlightControl.check_flight_status(flight_no) do
@@ -153,7 +157,7 @@ defmodule Pidge.Harness.CommandLine do
             IO.puts("WARNING: Flight says it landed, but it didn't send message: #{inspect(flight_no)}")
             payload
           {:crashed, error} ->
-            raise "Flight crashed, but did not send :crashed message.  Error: #{inspect(error)}"
+            raise "Flight crashed, but did not send :crashed message.  Error: \n\n#{error}\n\n"
           :in_flight ->
             IO.puts("Still in flight... (#{flight_no})")
             wait(flight_no)
@@ -202,12 +206,11 @@ defmodule Pidge.Harness.CommandLine do
   def bug(level, [label: label_only]), do: if( RunState.get_verbosity() >= level, do: IO.puts(label_only))
   def bug(level, stuff_to_debug),      do: if( RunState.get_verbosity() >= level, do: IO.inspect(stuff_to_debug))
 
-  def read_stdin_input(step) do
+  def read_stdin_input(step, opts) do
     # If input is provided, read from stdin
     IO.puts("Reading stdin input for step: #{step.id} / #{step.method}")
     input = IO.read(:stdio, :all)
-    RunState.set_opt(:input, input)
-    {:ok}
+    Map.put(opts, :input, input)
   end
 
   # Note, this is quick and dirty, and will go away.  Do not use on inputs you don't trust (from user input)
