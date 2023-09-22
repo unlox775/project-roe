@@ -44,7 +44,8 @@ defmodule Pidge.MixProject do
       {:websockex, "~> 0.4.3"},
       {:poolboy, "~> 1.5.1"},
       {:mix_test_watch, "~> 1.0", only: :dev},
-      {:mock, "~> 0.3.4", only: :test}
+      {:mock, "~> 0.3.4", only: :test},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 
