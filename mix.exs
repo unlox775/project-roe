@@ -4,11 +4,23 @@ defmodule Pidge.MixProject do
   def project do
     [
       app: :pidge,
-      version: "0.1.0",
-      elixir: "~> 1.15",
+      version: "0.2.0",
+      elixir: "~> 1.14",
       escript: escript_config(),
       deps: deps(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      description: "Pidge - Your description of the project here",
+      package: package_config()
+    ]
+  end
+
+  defp package_config do
+    [
+      maintainers: ["Dave Buchanan"],
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/unlox775/project-roe"
+      }
     ]
   end
 
