@@ -2,6 +2,7 @@ defmodule Pidge.Runtime.SessionState do
   use GenServer
 
   import Pidge.Util
+  alias Pidge.ObjectPatch
 
   # Client API
   def start_link(session_id), do: GenServer.start_link(__MODULE__, session_id, name: __MODULE__)
@@ -18,6 +19,10 @@ defmodule Pidge.Runtime.SessionState do
   def get(), do: GenServer.call(__MODULE__, :get_global)
 
   def session_id(), do: GenServer.call(__MODULE__, :session_id)
+  def last_revision(), do: GenServer.call(__MODULE__, :last_revision)
+
+  def save(revision_label), do: GenServer.call(__MODULE__, {:save, revision_label})
+  def revert_to_revision(revision_label), do: GenServer.call(__MODULE__, {:revert_to_revision, revision_label})
 
   def wipe(), do: GenServer.call(__MODULE__, :wipe)
 
@@ -33,14 +38,20 @@ defmodule Pidge.Runtime.SessionState do
 
   def init(session_id) do
     {stack_state, global} = __MODULE__.get_current_state(session_id)
-    {:ok, %{session_id: session_id, stack_state: stack_state, global: global}}
+    {rev_chain, _patch_chain, _boneyard} = __MODULE__.get_vc_chain(session_id)
+    {:ok, %{
+      session_id: session_id,
+      stack_state: stack_state,
+      global: global,
+      last_revision: rev_chain |> List.last()
+    }}
   end
 
-  defp session_id_to_filepath(session_id) do
+  defp session_id_to_filepath(session_id, suffix \\ "") do
     case session_id do
-      nil -> "release/state.json"
-      "" -> "release/state.json"
-      _ -> "release/#{session_id}.json"
+      nil -> "release/state#{suffix}.json"
+      "" -> "release/state#{suffix}.json"
+      _ -> "release/#{session_id}#{suffix}.json"
     end
   end
   # defp session_id_to_filepath(session_id, suffix) when is_atom(suffix) do
@@ -62,6 +73,19 @@ defmodule Pidge.Runtime.SessionState do
         end
       {:error, :enoent} -> {%{},%{}}
       error -> raise "Failed to load state: #{inspect(error)}"
+    end
+  end
+
+  def get_vc_chain(session_id) do
+    # Load state from file
+    case File.read(session_id_to_filepath(session_id,"-vc")) do
+      {:ok, json} ->
+        case Jason.decode(json, keys: :atoms) do
+          {:ok, %{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard}} -> {rev_chain, patch_chain, boneyard}
+          error -> raise "Failed to load VC state, decoding JSON: #{inspect(error)}"
+        end
+      {:error, :enoent} -> {[],[],[]}
+      error -> raise "Failed to load VC state: #{inspect(error)}"
     end
   end
 
@@ -100,11 +124,15 @@ defmodule Pidge.Runtime.SessionState do
   def handle_call(:get_stack_state, _from, state), do: {:reply, state.stack_state, state}
 
   def handle_call(:wipe, _from, state) do
-    {:reply, :ok, state |> Map.put(:global, %{}) |> Map.put(:stack_state, %{}) |> save()}
+    {:reply, :ok, state |> Map.put(:global, %{}) |> Map.put(:stack_state, %{})}
   end
 
   def handle_call(:session_id, _from, state) do
     {:reply, state.session_id, state}
+  end
+
+  def handle_call(:last_revision, _from, state) do
+    {:reply, state.last_revision, state}
   end
 
   # The idea is to store in the deepest stack frame first, if the key exists there
@@ -162,6 +190,93 @@ defmodule Pidge.Runtime.SessionState do
     handle_call({:get, object_name}, from, state)
   end
 
+  def handle_call({:save, revision_label}, _from, state) do
+    # Read the current state from the file
+    {cur_stack_state, cur_global} = __MODULE__.get_current_state(state.session_id)
+    {rev_chain, patch_chain, boneyard} = __MODULE__.get_vc_chain(state.session_id)
+    current_state = %{stack_state: cur_stack_state, global: cur_global}
+
+    # Assemble new state
+    new_state = %{ stack_state: state.stack_state, global: state.global }
+
+    # Raise if the revision label is already in the chain
+    if Enum.member?(rev_chain, revision_label) do
+      raise "Revision label #{revision_label} already exists in the chain"
+    end
+
+    # compute diff
+    diff = ObjectPatch.diff_objects(current_state, new_state)
+    rev_chain = rev_chain ++ [revision_label]
+    patch_chain = patch_chain ++ [diff]
+
+    # save the state as JSON
+    File.write!(
+      session_id_to_filepath(state.session_id),
+      Jason.encode!(new_state, pretty: true)
+      )
+    File.write!(
+      session_id_to_filepath(state.session_id, "-vc"),
+      Jason.encode!(%{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard}, pretty: true)
+      )
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:revert_to_revision, revision_label}, _from, state) do
+    # Read the current state from the file
+    {cur_stack_state, cur_global} = __MODULE__.get_current_state(state.session_id)
+    cur_state = %{stack_state: cur_stack_state, global: cur_global}
+    {rev_chain, patch_chain, boneyard} = __MODULE__.get_vc_chain(state.session_id)
+
+    # Raise if the revision label is not in the chain
+    if !Enum.member?(rev_chain, revision_label) do
+      raise "Revision label #{revision_label} does not exist in the chain"
+    end
+
+    # Find the index of the revision label
+    idx = Enum.find_index(rev_chain, &(&1 == revision_label))
+    count_of_revs_to_revert = Enum.count(rev_chain) - idx - 1
+
+    # Get list of revisions to revert (not including the revision to revert to)
+    revs_to_revert = Enum.take(rev_chain, count_of_revs_to_revert * -1)
+    new_rev_chain = Enum.drop(rev_chain, count_of_revs_to_revert * -1)
+    patches_to_revert = Enum.take(patch_chain, count_of_revs_to_revert * -1)
+    new_patch_chain = Enum.drop(patch_chain, count_of_revs_to_revert * -1)
+
+    # Apply the patches in reverse order, to the current state
+    new_state =
+      patches_to_revert
+      |> Enum.reverse()
+      |> Enum.reduce(cur_state, fn patch, new_state ->
+        ObjectPatch.patch_object(new_state, patch, true)
+      end)
+
+    # Store what we are culling in the boneyard
+    boneyard = boneyard ++ %{
+      revision_label: revision_label,
+      reverted_revisions: revs_to_revert,
+      reverted_patches: patches_to_revert,
+      idx: idx
+    }
+
+    # save the state as JSON
+    File.write!(
+      session_id_to_filepath(state.session_id),
+      Jason.encode!(new_state, pretty: true)
+      )
+    File.write!(
+      session_id_to_filepath(state.session_id, "-vc"),
+      Jason.encode!(%{rev_chain: new_rev_chain, patch_chain: new_patch_chain, boneyard: boneyard}, pretty: true)
+      )
+
+    {:reply, :ok, %{
+      session_id: state.session_id,
+      stack_state: new_state.stack_state,
+      global: new_state.global,
+      last_revision: new_rev_chain |> List.last()
+    }}
+  end
+
   # Internal Methods
 
   defp update_namespace_key(namespace, key_address, value) do
@@ -186,21 +301,9 @@ defmodule Pidge.Runtime.SessionState do
     end
   end
 
-  defp save_global(global, state), do: state |> Map.put(:global, global) |> save()
-  # defp save_stack_state(stack_state, state), do: state |> Map.put(:stack_state, stack_state) |> save()
-  defp save_frame_state(frame_id, frame_state, state), do: state |> Map.put(:stack_state, Map.put(state.stack_state, frame_id, frame_state)) |> save()
-  defp save(state) do
-    # save the state as JSON
-    File.write!(
-      session_id_to_filepath(state.session_id),
-      Jason.encode!(%{
-        global: state.global,
-        stack_state: state.stack_state
-        }, pretty: true)
-      )
-
-    state
-  end
+  defp save_global(global, state), do: state |> Map.put(:global, global)
+  # defp save_stack_state(stack_state, state), do: state |> Map.put(:stack_state, stack_state)
+  defp save_frame_state(frame_id, frame_state, state), do: state |> Map.put(:stack_state, Map.put(state.stack_state, frame_id, frame_state))
 
   # quick functions for getting string-based nested key lists
   def deep_get(state, key_list, default \\ nil) do
