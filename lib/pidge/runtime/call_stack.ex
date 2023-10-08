@@ -35,7 +35,7 @@ defmodule Pidge.Runtime.CallStack do
         end)
     end
   end
-  def get_stack_address(:string), do: get_stack_address(false) |> Enum.join(".")
+  def get_stack_address(:string), do: get_stack_address(:list) |> Enum.join(".")
 
   def get_complete_variable_namespace do
     global = SessionState.get()

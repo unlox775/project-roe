@@ -42,7 +42,7 @@ defmodule Pidge.RunTest do
       """
 
       {:ok, ast} = compile_ast(code, quiet: true)
-      {:ok, {:last}, global, stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -5)
+      {:ok, {:last}, global, stack_state} = run_ast("simple-general", ast, @step_name, @json_input, verbosity: -5)
 
       {:ok, test} = Jason.decode(global["json"]["test"], keys: :atoms)
       [kid|_] = test.kids
@@ -66,7 +66,7 @@ defmodule Pidge.RunTest do
       """
 
       {:ok, ast} = compile_ast(code, quiet: false)
-      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
+      {:ok, {:last}, global, _stack_state} = run_ast("various-assignments", ast, @step_name, @json_input, verbosity: -3)
 
       {:ok, test} = Jason.decode(global["json"]["test"], keys: :atoms)
       george = Enum.at(test.kids,2)
@@ -84,7 +84,7 @@ defmodule Pidge.RunTest do
       """
 
       {:ok, ast} = compile_ast(code, quiet: false)
-      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
+      {:ok, {:last}, global, _stack_state} = run_ast("var-access", ast, @step_name, @json_input, verbosity: -3)
 
       assert global["a"] == "elmer"
       assert global["b"] == nil
@@ -136,7 +136,7 @@ defmodule Pidge.RunTest do
       """
 
       {:ok, ast} = compile_ast(code, quiet: true)
-      {:ok, {:last}, global, _stack_state} = run_ast(ast, @step_name, @json_input, verbosity: -3)
+      {:ok, {:last}, global, _stack_state} = run_ast("vars-in-if", ast, @step_name, @json_input, verbosity: -3)
       # IO.inspect(global, label: "global")
 
       pass_letters = "abcdefgij"
@@ -174,7 +174,7 @@ defmodule Pidge.RunTest do
       """
 
       {:ok, ast} = compile_ast(code, quiet: true)
-      {:ok, {:last}, global, _stack_state} = run_ast(ast, nil, @json_input, verbosity: -3)
+      {:ok, {:last}, global, _stack_state} = run_ast("expr-formats", ast, nil, @json_input, verbosity: -3)
       # IO.inspect(global, label: "global")
 
       pass_letters = "b"
@@ -204,6 +204,7 @@ defmodule Pidge.RunTest do
       {:ok, compiled_function} = Pidge.Compiler.LocalFunction.ElixirSyntax.compile_function(function_ast)
       {:ok, ast} = compile_ast(code, quiet: true)
       {:ok, {:last}, global, _stack_state} = run_ast(
+        "local-functions",
         ast,
         nil,
         @json_input,
@@ -236,8 +237,8 @@ defmodule Pidge.RunTest do
     result
   end
 
-  def run_ast(ast, from_step, input, opts \\ []) do
-    session_id = "test/run_test"
+  def run_ast(test_session, ast, from_step, input, opts \\ []) do
+    session_id = "test/run_test-#{test_session}"
 
     {:ok, sessionstate_pid} = SessionState.start_link(session_id)
     SessionState.wipe()

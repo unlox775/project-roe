@@ -2,6 +2,7 @@ defmodule Pidge.Runtime.SessionState do
   use GenServer
 
   import Pidge.Util
+  require IEx
   alias Pidge.ObjectPatch
 
   # Client API
@@ -47,11 +48,11 @@ defmodule Pidge.Runtime.SessionState do
     }}
   end
 
-  defp session_id_to_filepath(session_id, suffix \\ "") do
+  defp session_id_to_filepath(session_id, suffix \\ ".json") do
     case session_id do
-      nil -> "release/state#{suffix}.json"
-      "" -> "release/state#{suffix}.json"
-      _ -> "release/#{session_id}#{suffix}.json"
+      nil -> "release/state#{suffix}"
+      "" -> "release/state#{suffix}"
+      _ -> "release/#{session_id}#{suffix}"
     end
   end
   # defp session_id_to_filepath(session_id, suffix) when is_atom(suffix) do
@@ -78,11 +79,11 @@ defmodule Pidge.Runtime.SessionState do
 
   def get_vc_chain(session_id) do
     # Load state from file
-    case File.read(session_id_to_filepath(session_id,"-vc")) do
-      {:ok, json} ->
-        case Jason.decode(json, keys: :atoms) do
-          {:ok, %{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard}} -> {rev_chain, patch_chain, boneyard}
-          error -> raise "Failed to load VC state, decoding JSON: #{inspect(error)}"
+    case File.read(session_id_to_filepath(session_id,"-vc.erlbin")) do
+      {:ok, serialized} ->
+        case :erlang.binary_to_term(serialized) do
+          %{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard} -> {rev_chain, patch_chain, boneyard}
+          error -> raise "Failed to load VC state, decoding serialized erlang: #{inspect(error)}"
         end
       {:error, :enoent} -> {[],[],[]}
       error -> raise "Failed to load VC state: #{inspect(error)}"
@@ -124,7 +125,13 @@ defmodule Pidge.Runtime.SessionState do
   def handle_call(:get_stack_state, _from, state), do: {:reply, state.stack_state, state}
 
   def handle_call(:wipe, _from, state) do
-    {:reply, :ok, state |> Map.put(:global, %{}) |> Map.put(:stack_state, %{})}
+    # Remove the state file
+    File.rm(session_id_to_filepath(state.session_id))
+    # remove the vc file
+    File.rm(session_id_to_filepath(state.session_id, "-vc.erlbin"))
+
+    {:ok, empty_state} = init(state.session_id)
+    {:reply, :ok, empty_state}
   end
 
   def handle_call(:session_id, _from, state) do
@@ -209,14 +216,22 @@ defmodule Pidge.Runtime.SessionState do
     rev_chain = rev_chain ++ [revision_label]
     patch_chain = patch_chain ++ [diff]
 
+    # Create the directory if it doesn't exist
+    state_file = session_id_to_filepath(state.session_id)
+    parent_dir = Path.dirname(state_file)
+    case File.dir?(parent_dir) do
+      true -> :ok
+      false -> File.mkdir_p!(parent_dir)
+    end
+
     # save the state as JSON
     File.write!(
-      session_id_to_filepath(state.session_id),
+      state_file,
       Jason.encode!(new_state, pretty: true)
       )
     File.write!(
-      session_id_to_filepath(state.session_id, "-vc"),
-      Jason.encode!(%{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard}, pretty: true)
+      session_id_to_filepath(state.session_id, "-vc.erlbin"),
+      :erlang.term_to_binary(%{rev_chain: rev_chain, patch_chain: patch_chain, boneyard: boneyard})
       )
 
     {:reply, :ok, state}
@@ -265,7 +280,7 @@ defmodule Pidge.Runtime.SessionState do
       Jason.encode!(new_state, pretty: true)
       )
     File.write!(
-      session_id_to_filepath(state.session_id, "-vc"),
+      session_id_to_filepath(state.session_id, "-vc.erlbin"),
       Jason.encode!(%{rev_chain: new_rev_chain, patch_chain: new_patch_chain, boneyard: boneyard}, pretty: true)
       )
 

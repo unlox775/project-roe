@@ -4,7 +4,7 @@ defmodule Pidge.Run do
   """
 
   alias Pidge.App.Loft
-  alias Pidge.Runtime.{ RunState, CallStack }
+  alias Pidge.Runtime.{ RunState, CallStack, SessionState }
   alias Pidge.Run.{ AIObjectExtract, LocalFunction }
 
   # @transit_tmp_dir "/tmp/roe/transit"
@@ -93,6 +93,9 @@ defmodule Pidge.Run do
       # Run the step
       {:next} <- apply(__MODULE__, step.method, [pidge_ast, step, index])
     do
+      # Now that a step has finished, save a state revision
+      SessionState.save("#{CallStack.get_stack_address(:string)}|#{step.seq}|#{step.method}")
+
       {:next}
     else
       {:halt} = x -> x

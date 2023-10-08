@@ -4,6 +4,7 @@ defmodule CommandLineTest do
   import ExUnit.CaptureIO
 
   alias Pidge.Harness.CommandLine
+  alias Pidge.Runtime.SessionState
 
   @simple_ast_contents [
     %{id: nil, seq: "00001", params: %{conversation_id: :elmer}, method: :context_create_conversation}
@@ -39,6 +40,8 @@ defmodule CommandLineTest do
   end
 
   test "run/1 with empty args" do
+    wipe_base_session()
+
     # this uses the simple AST from above
     assert capture_io(fn ->
       CommandLine.private__run(@base_opts, %{
@@ -50,6 +53,8 @@ defmodule CommandLineTest do
   end
 
   test "run/2 with mocked :required_input_callback and re-call" do
+    wipe_base_session()
+
     with_mock(CommandLine, [:passthrough], read_stdin_input: fn _,opts -> Map.put(opts, :input, "asdf") end) do
       capture_io(fn ->
         assert CommandLine.private__run(@base_opts, %{
@@ -60,5 +65,11 @@ defmodule CommandLineTest do
       end)
       assert_called CommandLine.read_stdin_input(:_,:_)
     end
+  end
+
+  def wipe_base_session() do
+    {:ok, sessionstate_pid} = SessionState.start_link(@base_opts.session)
+    SessionState.wipe()
+    SessionState.stop(sessionstate_pid)
   end
 end
