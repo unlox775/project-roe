@@ -116,14 +116,19 @@ defmodule Pidge.FlightControl do
   defp new_flight(payload, {caller_pid, _}, state) do
     flight_no = :crypto.strong_rand_bytes(8) |> Base.encode16()
 
+    # payload is {:new_flight, script}; cast script ({app, name, opts}) so Bird gets opts intact
+    script = elem(payload, 1)
+    opts = if tuple_size(script) >= 3, do: elem(script, 2), else: %{}
+    if is_map(opts) and (opts[:verbosity] || 0) >= 4 do
+      IO.puts("[pidge:flight_control] new_flight casting script to Bird: app=#{inspect(elem(script, 0))} name=#{inspect(elem(script, 1))} from_step=#{inspect(opts[:from_step])} opts_keys=#{inspect(Map.keys(opts || %{}))}")
+    end
     state = Map.put(state, :flight_caller, Map.put(state.flight_caller, flight_no, caller_pid))
 
     case :poolboy.checkout({:global, Pidge.FlightControl}, false) do
       :full ->
-        # Queue the script
-        {:reply, flight_no, Map.put(state, :runway_queue, state.runway_queue ++ [{flight_no, payload}])}
+        {:reply, flight_no, Map.put(state, :runway_queue, state.runway_queue ++ [{flight_no, script}])}
       bird_pid ->
-        GenServer.cast(bird_pid, payload)
+        GenServer.cast(bird_pid, script)
         {:reply, flight_no, Map.put(state, :in_flight, Map.put(state.in_flight, flight_no, bird_pid))}
     end
   end

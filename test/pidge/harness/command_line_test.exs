@@ -66,7 +66,7 @@ defmodule CommandLineTest do
 
     assert output =~ "Human input required"
     assert output =~ "To continue, run"
-    assert output =~ "--from_step"
+    assert output =~ "--from-step"
     assert output =~ "--session"
   end
 

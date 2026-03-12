@@ -12,15 +12,16 @@ defmodule Pidge.Run do
   @blocking_methods [:ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract]
   @allowed_methods [:context_create_conversation, :ai_prompt, :ai_pipethru, :ai_object_extract, :ai_codeblock_extract, :store_object, :clone_object, :merge_into_object, :foreach, :if, :pipe_from_variable, :local_function_call, :store_simple_value, :case, :pipe_from_human_input, :pipe_from_input]
 
-  def private__run(app_name, script_name) do
+  def private__run(app_name, script_name, opts \\ %{}) do
+    bug(4, [label: "[run:private__run] entry", opts_from_step: opts[:from_step], opts_keys: Map.keys(opts || %{})])
     pidge_ast = Loft.get_pidge_code(app_name, script_name)
     RunState.set_meta_key(:pidge_ast, pidge_ast)
     RunState.set_meta_key(:app_name, app_name)
     RunState.set_meta_key(:script_name, script_name)
 
     with 1 <- 1,
-      # Find the step to start at
-      {:ok, last_step, step, index} <- find_step(pidge_ast),
+      # Find the step to start at (opts passed explicitly so Bird's from_step is not lost)
+      {:ok, last_step, step, index} <- find_step(pidge_ast, opts),
       # Run post process on last step if needed
       {:ok} <- post_process(last_step),
       {:ok} <- execute(pidge_ast, step, index)
@@ -30,6 +31,7 @@ defmodule Pidge.Run do
     else
       {:send_api_message, _, _} = x -> x
       {:required_input_callback, _, _} = x -> x
+      {:required_input_callback, step} -> {:required_input_callback, step, get_from_step(step.id)}
       {:error, _} = x -> x
       {:last} -> {:last}
       {:last, _, _, _} -> {:last}
@@ -139,19 +141,36 @@ defmodule Pidge.Run do
     {:next}
   end
 
-  def ai_prompt(pidge_ast, %{id: id, params: %{ prompt: prompt, conversation_id: conv}}, index) do
+  def ai_prompt(pidge_ast, step, index) do
+    %{id: id, params: params} = step
+    %{prompt: prompt, conversation_id: conv} = params
+
     with 1 <- 1,
       ""<>_ <- RunState.get_opt(:session),
       {:ok, message} <- __MODULE__.compile_template(prompt),
-      {opts,_args,human_input_args,human_input_mode} <- get_next_command_args_to_run(pidge_ast, index, id)
+      {opts, _args, human_input_args, human_input_mode} <- get_next_command_args_to_run(pidge_ast, index, id)
     do
+      # When current step has optional_human_input, halt after response instead of recursing
+      # (so user can review and optionally loop back before continuing to the next step)
+      extra =
+        case Map.get(params, :optional_human_input) do
+          opt when not is_nil(opt) ->
+            %{halt_after_for_optional_input: true, loopback_allowed_to: Map.get(params, :loopback_allowed_to)}
+          _ ->
+            %{}
+        end
+      bug(4, [label: "[run:ai_prompt] optional_human_input", step_id: id, has_opt: Map.has_key?(params, :optional_human_input), extra_keys: Map.keys(extra)])
+
       {
         :send_api_message,
         {conv, message},
-        %{
-          opts: opts ++ human_input_args,
-          human_input_mode: human_input_mode
-        }
+        Map.merge(
+          %{
+            opts: opts ++ human_input_args,
+            human_input_mode: human_input_mode
+          },
+          extra
+        )
       }
     else
       nil -> raise "Error: session not set.  TBD: Check this earlier"
@@ -501,8 +520,11 @@ defmodule Pidge.Run do
         _ -> {[],:none}
       end
 
-    # "echo \"{}\" | pidge run --from-step \"#{get_from_step(from_id)}\"#{human_input_args}"
-    from_step_id = get_from_step(from_id)
+    # When recursing after send_api_message, we run the NEXT step (index+1), not the current step.
+    # from_id is the current step; the next step consumes the response and must be the resume point.
+    next_step = Enum.at(pidge_ast, index + 1)
+    step_id_for_from = if next_step && next_step.id, do: next_step.id, else: from_id
+    from_step_id = get_from_step(step_id_for_from)
     {[from_step: from_step_id], ["--from-step", from_step_id], human_input_args, human_input_mode}
   end
 
@@ -546,16 +568,18 @@ defmodule Pidge.Run do
     end
   end
 
-  def find_step(pidge_ast) do
-
+  def find_step(pidge_ast, opts \\ %{}) do
     # Remove the :sub_from_step opt key if it exists
     RunState.delete_meta_key(:sub_from_step)
 
+    from_step = opts[:from_step] || opts["from_step"] || RunState.get_opt(:from_step)
+    bug(4, [label: "[run:find_step]", from_step: from_step, opts_from_step: opts[:from_step], opts_keys: Map.keys(opts || %{}), will_start_at: if(from_step, do: "step matching id", else: "index 0")])
+
     # if step is provided, find it in the pidge file, otherwise we start at the beginning
     cond do
-      RunState.get_opt(:from_step) ->
+      from_step ->
         # Check for steps that start with "foreach-00003[2]." and enter closure re-calling find_step
-        case Regex.run(~r/^(foreach|case|block)-(\d+)(?:\[(\d+)\])?\.(.+)$/, RunState.get_opt(:from_step)) do
+        case Regex.run(~r/^(foreach|case|block)-(\d+)(?:\[(\d+)\])?\.(.+)$/, to_string(from_step)) do
           [_,"foreach",seq,foreach_loop_index,sub_from_step] ->
             bug(4, [label: "find_step[foreach]", sub_from_step: sub_from_step, seq: seq, foreach_loop_index: foreach_loop_index])
             # Get the step with the :seq key that matches
@@ -564,7 +588,7 @@ defmodule Pidge.Run do
             RunState.set_meta_key(:sub_from_step, sub_from_step)
             RunState.set_meta_key(:foreach_loop_index, String.to_integer(foreach_loop_index))
             if match == nil do
-              {:error, "Foreach Step not found: #{RunState.get_opt(:from_step)}"}
+              {:error, "Foreach Step not found: #{from_step}"}
             else
               {step, index} = match
               RunState.set_meta_key(:sub_from_step, sub_from_step)
@@ -579,7 +603,7 @@ defmodule Pidge.Run do
             RunState.set_meta_key(:sub_from_step, sub_from_step)
             RunState.set_meta_key(:case_expression_index, String.to_integer(case_expression_index))
             if match == nil do
-              {:error, "Case Step not found: #{RunState.get_opt(:from_step)}"}
+              {:error, "Case Step not found: #{from_step}"}
             else
               {step, index} = match
               RunState.set_meta_key(:sub_from_step, sub_from_step)
@@ -590,13 +614,13 @@ defmodule Pidge.Run do
             bug(4, [label: "find_step[block]", sub_from_step: sub_from_step, seq: seq])
             # Get the step with the :seq key that matches
             # Our goal here: we need to kick the index to the block, then, set :sub_from_step, so when that function runs, it can correctly find the step its on within the expression
-            match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq)) |> IO.inspect(label: "match")
+            match = pidge_ast |> Enum.with_index() |> Enum.find(&(elem(&1,0).seq == seq))
             RunState.set_meta_key(:sub_from_step, sub_from_step)
             if match == nil do
-              {:error, "If block Step not found: #{RunState.get_opt(:from_step)}"} |> IO.inspect(label: "error")
+              {:error, "If block Step not found: #{from_step}"}
             else
               {step, index} = match
-              RunState.set_meta_key(:sub_from_step, sub_from_step |> IO.inspect(label: "sub_from_step"))
+              RunState.set_meta_key(:sub_from_step, sub_from_step)
               {:ok, nil, step, index}
             end
 
@@ -604,9 +628,12 @@ defmodule Pidge.Run do
             bug(5, [label: "find_step no_match", no_match: no_match])
 
             # the :id on each pidge entry is the step name; resume AT this step (run it next)
-            match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == RunState.get_opt(:from_step) end)
+            from_step_s = to_string(from_step)
+            match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} ->
+              step.id && to_string(step.id) == from_step_s
+            end)
             if match == nil do
-              {:error, "Step not found: #{RunState.get_opt(:from_step)}"}
+              {:error, "Step not found: #{from_step}"}
             else
               {step_to_run, index} = match
               last_step = if index > 0, do: Enum.at(pidge_ast, index - 1), else: nil

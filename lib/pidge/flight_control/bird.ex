@@ -32,8 +32,10 @@ defmodule Pidge.FlightControl.Bird do
   defp do_run(app_name, script_name, opts, state) do
     try do
       RunState.init_session(opts)
-      # RunState.get_opts() |> IO.inspect()
-      payload = Run.private__run(app_name, script_name)
+      if (opts[:verbosity] || 0) >= 4 do
+        IO.puts("[pidge:bird] do_run received opts from_step=#{inspect(opts[:from_step])} opts_keys=#{inspect(Map.keys(opts || %{}))}")
+      end
+      payload = Run.private__run(app_name, script_name, opts)
 
       FlightControl.coming_in_for_landing(payload)
       {:noreply, state}
