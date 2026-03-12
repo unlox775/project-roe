@@ -19,7 +19,7 @@ defmodule Pidge.Compiler.PidgeScript do
   @allowed_opts %{
     ai_prompt: [:human_input],
     ai_pipethru: [:optional_human_input, :loopback_allowed_to],
-    ai_object_extract: [:schema, :human_input, :optional_human_input],
+    ai_object_extract: [:schema, :partial, :human_input, :optional_human_input],
     ai_codeblock_extract: [:largest, :all, :human_input, :optional_human_input]
   }
   def compile_source(code) do

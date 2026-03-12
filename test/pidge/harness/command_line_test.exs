@@ -52,19 +52,22 @@ defmodule CommandLineTest do
     end) == "Pidge Execution complete.\n"
   end
 
-  test "run/2 with mocked :required_input_callback and re-call" do
+  test "run/2 with required_input_callback prints rejoin command and halts" do
     wipe_base_session()
 
-    with_mock(CommandLine, [:passthrough], read_stdin_input: fn _,opts -> Map.put(opts, :input, "asdf") end) do
+    output =
       capture_io(fn ->
-        assert CommandLine.private__run(@base_opts, %{
+        CommandLine.private__run(@base_opts, %{
           pidge_code: %{main: @input_req_ast_contents},
           local_function_files: %{},
           prompt_files: %{}
-        }) == {:last}
+        })
       end)
-      assert_called CommandLine.read_stdin_input(:_,:_)
-    end
+
+    assert output =~ "Human input required"
+    assert output =~ "To continue, run"
+    assert output =~ "--from_step"
+    assert output =~ "--session"
   end
 
   def wipe_base_session() do

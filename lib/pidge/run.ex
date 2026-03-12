@@ -29,7 +29,7 @@ defmodule Pidge.Run do
       {:ok}
     else
       {:send_api_message, _, _} = x -> x
-      {:required_input_callback, _} = x -> x
+      {:required_input_callback, _, _} = x -> x
       {:error, _} = x -> x
       {:last} -> {:last}
       {:last, _, _, _} -> {:last}
@@ -64,7 +64,8 @@ defmodule Pidge.Run do
     case run_step(pidge_ast, step, index) do
       {:halt} = x -> x
       {:send_api_message, _, _} = x -> x
-      {:required_input_callback, _} = x -> x
+      {:required_input_callback, step} ->
+        {:required_input_callback, step, get_from_step(step.id)}
       {:halt, cli_prompt} ->
         IO.puts("Runtime Finshed.\n\n#{cli_prompt}")
         {:halt}
@@ -101,6 +102,8 @@ defmodule Pidge.Run do
       {:halt} = x -> x
       {:send_api_message, _, _} = x -> x
       {:required_input_callback, _} = x -> x
+      {:error, "Human input required for step: " <> _} ->
+        {:required_input_callback, step}
       {:error, reason} -> {:error, reason}
       error -> {:error, "Error running step: #{inspect(error)}"}
     end
@@ -600,19 +603,15 @@ defmodule Pidge.Run do
           no_match ->
             bug(5, [label: "find_step no_match", no_match: no_match])
 
-            # the :id on each pidge entry is the step name
+            # the :id on each pidge entry is the step name; resume AT this step (run it next)
             match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} -> step.id == RunState.get_opt(:from_step) end)
             if match == nil do
               {:error, "Step not found: #{RunState.get_opt(:from_step)}"}
             else
-              {last_step, index} = match
-              # If this is the last step in the AST, return :last
-              cond do
-                index == length(pidge_ast) - 1 ->
-                  {:last, last_step, nil, nil}
-                true ->
-                  {:ok, last_step, Enum.at(pidge_ast, index + 1), index + 1}
-              end
+              {step_to_run, index} = match
+              last_step = if index > 0, do: Enum.at(pidge_ast, index - 1), else: nil
+              # Run the step we found (resume at from_step)
+              {:ok, last_step, step_to_run, index}
             end
         end
 

@@ -1,0 +1,11 @@
+Ok, I like your plan, but please consider the following feedback:
+
+{{ input }}
+
+{% if human_input %}
+
+  But my most important advice, is this. Please pay close attention:
+
+  {{ human_input }}
+
+{% endif %}

@@ -32,12 +32,9 @@ defmodule Pidge.Harness.CommandLine do
 
     return =
       case run_loop(run_payload) do
-        #  The engine barfed, becauase we didn't give it the input it needed
-        {:required_input_callback, step} ->
-          # Read input from STDIN, then try again
-          opts = __MODULE__.read_stdin_input(step, opts)
-          run_payload = {:local, :main, opts}
-          run_loop(run_payload)
+        # Human-in-the-loop: output context and rejoin command, then exit
+        {:required_input_callback, step, from_step} ->
+          __MODULE__.print_rejoin_and_halt(step, from_step, opts)
 
         x -> x
       end
@@ -49,6 +46,7 @@ defmodule Pidge.Harness.CommandLine do
 
     case return do
       {:halt} -> System.halt(0)
+      {:human_input_required} -> System.halt(0)
       {:error, reason} ->
         IO.puts("Error: #{inspect(reason)}")
         System.halt(1)
@@ -115,26 +113,29 @@ defmodule Pidge.Harness.CommandLine do
   end
 
   def run_loop(run_payload) do
-    with 1 <- 1,
-      {:send_api_message, {conv, message}, %{
-        opts: next_runtime_opts,
-        human_input_mode: human_input_mode
-      }} <- fly_and_wait(run_payload),
-      {:ok, response} <- __MODULE__.push_to_api_and_wait_for_response(human_input_mode, conv, message)
-    do
-      input = response["body"]
+    result = fly_and_wait(run_payload)
 
-      # cmd = get_next_command_to_run(app_name, index, id)
-      IO.puts "\n\nAuto-running next command: pidge run #{inspect(next_runtime_opts)} --input RESPONSE-BODY\n\n"
-      next_command = next_runtime_opts ++ [input: input]
+    case result do
+      {:required_input_callback, step, from_step} ->
+        opts = elem(run_payload, 2)
+        __MODULE__.print_rejoin_and_halt(step, from_step, opts)
 
-      # Save the next command to run in release/next_command.txt
-      File.write!("release/next_command.exs", inspect(next_command, limit: :infinity, printable_limit: :infinity))
+      {:send_api_message, {conv, message}, %{opts: next_runtime_opts, human_input_mode: human_input_mode}} ->
+        case __MODULE__.push_to_api_and_wait_for_response(human_input_mode, conv, message) do
+          {:ok, response} ->
+            input = response["body"]
+            IO.puts("\n\nAuto-running next command: pidge run #{inspect(next_runtime_opts)} --input RESPONSE-BODY\n\n")
+            next_command = next_runtime_opts ++ [input: input]
+            File.write!("release/next_command.exs", inspect(next_command, limit: :infinity, printable_limit: :infinity))
+            bug(4, [label: "next_command_opts", opts: next_command])
+            new_payload = {:local, :main, Enum.into(next_command, %{})}
+            run_loop(new_payload)
+          {:error, reason} ->
+            {:error, reason}
+        end
 
-      bug(4, [label: "next_command_opts", opts: next_command])
-      run_payload = {:local, :main, Enum.into(next_command, %{})
-    }
-      run_loop(run_payload)
+      other ->
+        other
     end
   end
 
@@ -157,7 +158,7 @@ defmodule Pidge.Harness.CommandLine do
             IO.puts("WARNING: Flight says it landed, but it didn't send message: #{inspect(flight_no)}")
             payload
           {:crashed, error} ->
-            raise "Flight crashed, but did not send :crashed message.  Error: \n\n#{error}\n\n"
+            raise "Flight crashed, but did not send :crashed message.  Error: \n\n#{inspect(error)}\n\n"
           :in_flight ->
             IO.puts("Still in flight... (#{flight_no})")
             wait(flight_no)
@@ -165,24 +166,41 @@ defmodule Pidge.Harness.CommandLine do
     end
   end
 
-  def push_to_api_and_wait_for_response(human_input_mode, conv, message) do
-    data = %{ "message" => message, "human_input_mode" => to_string(human_input_mode) }
+  def push_to_api_and_wait_for_response(_human_input_mode, conv, message) do
+    session = RunState.get_opt(:session)
+    IO.puts("Sending to LLM (conversation: #{conv}, session: #{session})")
 
-    channel = "session:#{conv}-#{RunState.get_opt(:session)}" |> String.downcase()
-    IO.puts("Pushing message to web browser on channel: #{channel}")
-
-    case Pidge.WebClient.send_and_wait_for_response(data, channel) do
+    case Pidge.LLMClient.send_and_wait_for_response(session, conv, message) do
       {:ok, response_data} ->
-        IO.puts("Response recieved: #{inspect(response_data, limit: :infinity, printable_limit: :infinity) |> String.length()} bytes")
+        IO.puts("Response received: #{String.length(response_data["body"] || "")} bytes")
         bug(2, [response_data: response_data, label: "Response Data"])
         {:ok, response_data}
       {:error, reason} ->
+        IO.puts("LLM error: #{inspect(reason)}")
         bug(2, [reason: reason, label: "Error"])
         {:error, reason}
       error ->
         bug(2, [error: error, label: "Unknown error"])
         {:error, "Unknown error"}
     end
+  end
+
+  def print_rejoin_and_halt(step, from_step, opts) do
+    session = opts.session || RunState.get_opt(:session)
+    base = ["pidge", "run", "--session", session, "--from_step", from_step]
+
+    {flag, placeholder} =
+      if Map.has_key?(step.params || %{}, :human_input) do
+        {"--human_input", "YOUR_INPUT_HERE"}
+      else
+        {"--input", "YOUR_RESPONSE_HERE"}
+      end
+
+    IO.puts("\n--- Human input required for step: #{step.id} (#{step.method}) ---\n")
+    IO.puts("To continue, run:\n")
+    IO.puts("  " <> Enum.join(base ++ [flag, "\"#{placeholder}\""], " ") <> "\n")
+    IO.puts("Replace #{inspect(placeholder)} with your actual input.\n")
+    {:human_input_required}
   end
 
   def print_help do

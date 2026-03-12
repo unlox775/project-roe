@@ -21,7 +21,15 @@ defmodule Pidge.FlightControl.Bird do
     {:ok, %{}}
   end
 
+  # Payload from harness is {:local, :main, opts}; legacy format {:new_flight, {app_name, script_name, opts}}
+  def handle_cast({app_name, script_name, opts}, state) when is_map(opts) do
+    do_run(app_name, script_name, opts, state)
+  end
   def handle_cast({:new_flight, {app_name, script_name, opts}}, state) do
+    do_run(app_name, script_name, opts, state)
+  end
+
+  defp do_run(app_name, script_name, opts, state) do
     try do
       RunState.init_session(opts)
       # RunState.get_opts() |> IO.inspect()

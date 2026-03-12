@@ -121,7 +121,7 @@ defmodule Pidge.FlightControl do
     case :poolboy.checkout({:global, Pidge.FlightControl}, false) do
       :full ->
         # Queue the script
-        {:reply, flight_no, Map.put(state, :runway_queue, state.runway_queue ++ [{flight_no,payload}])}
+        {:reply, flight_no, Map.put(state, :runway_queue, state.runway_queue ++ [{flight_no, payload}])}
       bird_pid ->
         GenServer.cast(bird_pid, payload)
         {:reply, flight_no, Map.put(state, :in_flight, Map.put(state.in_flight, flight_no, bird_pid))}

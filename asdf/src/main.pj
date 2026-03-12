@@ -1,0 +1,6 @@
+Context.add_conversation(:bird)
+Context.add_conversation(:insight)
+
+ai_prompt(:bird, "bird/01_example", human_input: true)
+|> ai_pipethru(:insight, "insight/02_critique")
+|> ai_pipethru(:bird, "bird/03_revision", optional_human_input: true)
