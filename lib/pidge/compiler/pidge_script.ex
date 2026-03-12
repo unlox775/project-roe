@@ -16,6 +16,7 @@ defmodule Pidge.Compiler.PidgeScript do
   @callstack_module [:Pidge,:Runtime,:CallStack]
 
   # constant defining what opts are allowed for which functions
+  # schema, partial: accepted for ai_object_extract but not yet used by runtime (stubs for future use)
   @allowed_opts %{
     ai_prompt: [:human_input],
     ai_pipethru: [:optional_human_input, :loopback_allowed_to],
@@ -375,9 +376,9 @@ defmodule Pidge.Compiler.PidgeScript do
   end
   def collapse_dottree(
     [
-      {dot, _, []},
+      {dot, _, tail},
       {var_key, _line, _}
-    ], acc, flag) do
+    ], acc, flag) when tail == [] or tail == nil do
     case var_key |> trace() do
       atom when is_atom(atom) -> collapse_dottree(dot, [{var_key}] ++ acc, flag)
       _ -> collapse_dottree(dot, [{collapse_dottree(var_key,[])}] ++ acc, flag)

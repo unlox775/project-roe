@@ -66,7 +66,7 @@ defmodule Pidge.Compiler do
           false -> raise "PIDGE: Prompt file not found: #{filename}"
           true ->
             # chop off the /src/ part of the path
-            new_file_path = "release/#{String.slice(filename, 4..-1)}"
+            new_file_path = "release/#{String.slice(filename, 4..-1//1)}"
             dirname = Path.dirname(new_file_path)
             File.mkdir_p!(dirname)
             File.write!(new_file_path, File.read!(filename))
