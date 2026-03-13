@@ -187,13 +187,32 @@ defmodule Pidge.Harness.CommandLine do
 
             cond do
               halt_after ->
-                # Just finished a step with optional human input: print rejoin and halt
-                __MODULE__.print_optional_input_rejoin_and_halt(
-                  current_opts,
-                  input,
-                  next_runtime_opts,
-                  loopback_to
-                )
+                # Only halt if user did NOT provide human input upfront. When
+                # --human-input was passed, the user wants to cascade through.
+                human_input_provided =
+                  case Map.get(current_opts, :human_input) do
+                    nil -> false
+                    "-" -> false
+                    s when is_binary(s) -> String.trim(s) != ""
+                    _ -> false
+                  end
+
+                if human_input_provided do
+                  next_command = next_runtime_opts ++ [input: input]
+                  new_opts = Map.merge(current_opts, Enum.into(next_command, %{}))
+                  IO.puts("\n\nAuto-running next command: pidge run #{inspect(next_runtime_opts)} --input RESPONSE-BODY\n\n")
+                  File.write!("release/next_command.exs", inspect(next_command, limit: :infinity, printable_limit: :infinity))
+                  bug(4, [label: "next_command_opts", opts: next_command])
+                  new_payload = {:local, :main, new_opts}
+                  run_loop(new_payload)
+                else
+                  __MODULE__.print_optional_input_rejoin_and_halt(
+                    current_opts,
+                    input,
+                    next_runtime_opts,
+                    loopback_to
+                  )
+                end
 
               human_input_mode == :optional ->
                 # Next step has optional human input: halt and print continuation (do NOT auto-run)
@@ -274,13 +293,20 @@ defmodule Pidge.Harness.CommandLine do
     end
   end
 
-  def print_optional_input_rejoin_and_halt(current_opts, input, _next_runtime_opts, loopback_to) do
+  def print_optional_input_rejoin_and_halt(current_opts, input, next_runtime_opts, loopback_to) do
     session = Map.get(current_opts, :session) || RunState.get_opt(:session)
+    next_step = Keyword.get(next_runtime_opts, :from_step)
 
     if loopback_to && is_binary(input), do: write_pipe_input(session, input)
 
     IO.puts("\n--- Optional human input: step finished. You may continue or loop back. ---\n")
-    IO.puts("To continue: you're done. No further action needed.\n")
+    if next_step do
+      IO.puts("To continue to next step (#{next_step}):\n")
+      IO.puts("  pidge run --session #{session} --from-step #{next_step}\n")
+      IO.puts("(Pipe input is stored; no --input needed.)\n")
+    else
+      IO.puts("To continue: you're done. No further action needed.\n")
+    end
     if loopback_to do
       IO.puts("To loop back to #{loopback_to} for another critique round:\n")
       IO.puts("  pidge run --session #{session} --from-step #{loopback_to}\n")
@@ -311,7 +337,7 @@ defmodule Pidge.Harness.CommandLine do
 
     # Resuming to a later step (e.g. bard/03) but pipe input is missing – step that failed
     # is the previous pipe step (e.g. whip/02) which needs the prior output
-    if opts[:from_step] && to_string(opts[:from_step]) != to_string(from_step) and step.method == :ai_pipethru do
+    if opts[:from_step] && to_string(opts[:from_step]) != to_string(from_step) && step.method == :ai_pipethru do
       path = pipe_input_path(session)
       IO.puts("\n--- Pipe input required to resume at #{opts[:from_step]} ---\n")
       IO.puts("No stored pipe input found (expected: #{path}).\n")

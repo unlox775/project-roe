@@ -520,10 +520,19 @@ defmodule Pidge.Run do
         _ -> {[],:none}
       end
 
-    # When recursing after send_api_message, we run the NEXT step (index+1), not the current step.
-    # from_id is the current step; the next step consumes the response and must be the resume point.
+    # When recursing after send_api_message, we run the step after index. The from_step must be
+    # a step with an id (resume point). If the immediate next step has no id (e.g. store_object),
+    # use the next blocking step so we don't tell the user to re-run the current step.
     next_step = Enum.at(pidge_ast, index + 1)
-    step_id_for_from = if next_step && next_step.id, do: next_step.id, else: from_id
+    step_id_for_from =
+      if next_step && next_step.id do
+        next_step.id
+      else
+        case next_blocking_step(pidge_ast, index + 1) do
+          {:ok, step} -> step.id
+          {:last} -> from_id
+        end
+      end
     from_step_id = get_from_step(step_id_for_from)
     {[from_step: from_step_id], ["--from-step", from_step_id], human_input_args, human_input_mode}
   end
@@ -627,7 +636,8 @@ defmodule Pidge.Run do
           no_match ->
             bug(5, [label: "find_step no_match", no_match: no_match])
 
-            # the :id on each pidge entry is the step name; resume AT this step (run it next)
+            # --from-step X means "RUN step X" (not "I finished X, skip it").
+            # Steps with id: nil (e.g. store_object) cannot be targeted; use the next step with an id.
             from_step_s = to_string(from_step)
             match = pidge_ast |> Enum.with_index() |> Enum.find(fn {step, _} ->
               step.id && to_string(step.id) == from_step_s
@@ -637,7 +647,19 @@ defmodule Pidge.Run do
             else
               {step_to_run, index} = match
               last_step = if index > 0, do: Enum.at(pidge_ast, index - 1), else: nil
-              # Run the step we found (resume at from_step)
+              next_in_chain = Enum.at(pidge_ast, index + 1)
+              next_blocking = next_blocking_step(pidge_ast, index + 1)
+              bug(4, [
+                label: "find_step resolved",
+                will_run: step_to_run.id,
+                last_step_id: last_step && last_step.id,
+                next_immediate: next_in_chain && %{id: next_in_chain.id, method: next_in_chain.method},
+                next_blocking_for_continue: case next_blocking do
+                  {:ok, s} -> s.id
+                  {:last} -> :last
+                end,
+                note: "--from-step means RUN this step; to proceed past it use --from-step <next_step_id>"
+              ])
               {:ok, last_step, step_to_run, index}
             end
         end
@@ -647,22 +669,16 @@ defmodule Pidge.Run do
   end
 
   def next_blocking_step(pidge_ast, index) do
-    # If the method of the current ste is in @blocking_methods, return this step
-    step =
-      cond do
-        Enum.at(pidge_ast, index) == nil ->
-          :last
-        Enum.member?(@blocking_methods, Enum.at(pidge_ast, index).method) ->
-          Enum.at(pidge_ast, index)
-        Enum.at(pidge_ast, index + 1) == nil ->
-          :last
-        true -> next_blocking_step(pidge_ast, index + 1)
-      end
-
-    # If the step is not found, error out
-    case step do
-      :last -> {:last}
-      _ -> {:ok, step}
+    cond do
+      Enum.at(pidge_ast, index) == nil ->
+        {:last}
+      Enum.member?(@blocking_methods, Enum.at(pidge_ast, index).method) ->
+        {:ok, Enum.at(pidge_ast, index)}
+      Enum.at(pidge_ast, index + 1) == nil ->
+        {:last}
+      true ->
+        # Recurse; return the result directly (already {:ok, step} or {:last})
+        next_blocking_step(pidge_ast, index + 1)
     end
   end
 end
